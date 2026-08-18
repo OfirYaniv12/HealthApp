@@ -3,12 +3,16 @@ import { Redirect } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 
+import { supabase } from '@/utils/supabase';
+
 export default function Index() {
     const [mounted, setMounted] = useState(false);
     const user = useUserStore((state) => state.user);
     const resetUser = useUserStore((state) => state.resetUser);
 
     const [hydrated, setHydrated] = useState(false);
+    const [sessionChecked, setSessionChecked] = useState(false);
+    const [hasSession, setHasSession] = useState(false);
 
     useEffect(() => {
         setMounted(true);
@@ -21,7 +25,6 @@ export default function Index() {
                 if (useUserStore.persist.hasHydrated()) {
                     setHydrated(true);
                 } else {
-                    // Force hydration true after 2 seconds to unblock
                     setHydrated(true);
                 }
             }, 2000);
@@ -33,18 +36,31 @@ export default function Index() {
     }, []);
 
     useEffect(() => {
+        const checkSession = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            setHasSession(!!session);
+            setSessionChecked(true);
+        };
+        checkSession();
+    }, []);
+
+    useEffect(() => {
         // Force complete onboarding if the user profile is incomplete
         if (hydrated && user && !user.full_name) {
             resetUser();
         }
     }, [hydrated, user]);
 
-    if (!mounted || !hydrated) {
+    if (!mounted || !hydrated || !sessionChecked) {
         return (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
                 <ActivityIndicator size="large" />
             </View>
         );
+    }
+
+    if (!hasSession) {
+        return <Redirect href={'/login' as any} />;
     }
 
     if (user && user.full_name) {

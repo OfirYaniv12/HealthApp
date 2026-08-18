@@ -13,7 +13,7 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
 
   useEffect(() => {
-    initDB().catch(console.error);
+    // initDB().catch(console.error);
   }, []);
 
   return (
