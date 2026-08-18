@@ -1,5 +1,6 @@
 import { UserData, useUserStore } from '@/store/useUserStore';
 import { generatePersonalizedPlan } from '@/utils/ai';
+import { supabase } from '@/utils/supabase';
 import { ActivityLevel, BodyType, GenderType, GoalType, TargetPace, WorkoutFrequency } from '@/utils/calculators';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
@@ -27,6 +28,7 @@ export default function OnboardingScreen() {
     const [bodyType, setBodyType] = useState<BodyType | ''>('');
     const [targetPace, setTargetPace] = useState<TargetPace | ''>('');
     const [isGenerating, setIsGenerating] = useState(false);
+    const [errorMsg, setErrorMsg] = useState<string>('');
 
     const shouldShowPace = goal === 'ירידה במשקל' || goal === 'עלייה במסת שריר';
 
