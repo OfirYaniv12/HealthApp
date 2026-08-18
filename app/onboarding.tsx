@@ -45,17 +45,20 @@ export default function OnboardingScreen() {
         setWorkoutFreq('');
         setBodyType('');
         setTargetPace('');
+        setErrorMsg('');
         Alert.alert('הנתונים אופסו', 'ניתן להתחיל מחדש.');
     };
 
     const handleComplete = async () => {
+        setErrorMsg('');
+        
         if (!fullName || !gender || !age || !height || !weight || !goal || !activityLevel || !workoutFreq || !bodyType) {
-            Alert.alert('שגיאה', 'אנא מלא/י את כל השדות החסרים.');
+            setErrorMsg('אנא מלאו את כל השדות החובה (כולל בחירת כל האפשרויות).');
             return;
         }
 
         if (shouldShowPace && !targetPace) {
-            Alert.alert('שגיאה', 'אנא בחר/י קצב התקדמות ליעד שלך.');
+            setErrorMsg('אנא בחרו קצב ירידה או עלייה במשקל.');
             return;
         }
 
@@ -64,14 +67,17 @@ export default function OnboardingScreen() {
         const weightNum = Number(weight);
 
         if (isNaN(ageNum) || isNaN(heightNum) || isNaN(weightNum)) {
-            Alert.alert('קלט לא תקין', 'גיל, גובה ומשקל חייבים להיות מספרים תקינים.');
+            setErrorMsg('גיל, גובה ומשקל חייבים להיות מספרים תקינים.');
             return;
         }
 
         setIsGenerating(true);
 
+        const { data: { session } } = await supabase.auth.getSession();
+        const userId = session?.user?.id || new Date().getTime().toString();
+
         const baseUser: UserData = {
-            id: new Date().getTime().toString(),
+            id: userId,
             full_name: fullName,
             gender,
             age: ageNum,
@@ -82,7 +88,7 @@ export default function OnboardingScreen() {
             workout_frequency: workoutFreq,
             body_type: bodyType,
             target_pace: shouldShowPace ? (targetPace as TargetPace) : undefined,
-            daily_targets: { calories: 0, protein: 0, carbs: 0, fat: 0 } // Temporary fallback
+            daily_targets: { calories: 0, protein: 0, carbs: 0, fat: 0 }
         };
 
         try {
@@ -91,12 +97,33 @@ export default function OnboardingScreen() {
                 baseUser.daily_targets = plan.targets;
                 baseUser.aiPlanExplanation = plan.explanation;
             } else {
-                throw new Error('AI Generation failed');
+                console.warn('AI Generation returned null, using fallbacks');
             }
         } catch (e) {
-            setIsGenerating(false);
-            Alert.alert('שגיאה', 'תקלה בתקשורת מול מערכת ה-AI. אנא נסה שוב.');
-            return;
+            console.error('AI Error during onboarding:', e);
+            // DO NOT return here! Fallback to default values so the user is not permanently blocked from the app!
+            baseUser.daily_targets = { calories: 2000, protein: 120, carbs: 200, fat: 60 };
+        }
+
+        // Save to Supabase to make sure it persists in the cloud
+        if (session?.user?.id) {
+            const { error: insertError } = await supabase.from('users').upsert({
+                id: session.user.id,
+                full_name: baseUser.full_name,
+                gender: baseUser.gender,
+                age: baseUser.age,
+                height: baseUser.height,
+                weight: baseUser.weight,
+                goal: baseUser.goal,
+                activity_level: baseUser.activity_level,
+                workout_frequency: baseUser.workout_frequency,
+                body_type: baseUser.body_type,
+                target_pace: baseUser.target_pace || null,
+                daily_targets: baseUser.daily_targets
+            });
+            if (insertError) {
+                console.error("Failed to insert user profile:", insertError);
+            }
         }
 
         setUser(baseUser);
@@ -276,6 +303,12 @@ export default function OnboardingScreen() {
                         ], targetPace, setTargetPace)}
                     </View>
                 )}
+
+                {errorMsg ? (
+                    <Text style={{ color: '#ef4444', textAlign: 'center', marginBottom: 12, fontSize: 16, fontWeight: 'bold' }}>
+                        {errorMsg}
+                    </Text>
+                ) : null}
 
                 <TouchableOpacity
                     style={[styles.submitButton, isGenerating && { opacity: 0.7 }]}
