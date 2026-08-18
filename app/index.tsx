@@ -36,12 +36,35 @@ export default function Index() {
     }, []);
 
     useEffect(() => {
+        let isMounted = true;
+        
         const checkSession = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            setHasSession(!!session);
-            setSessionChecked(true);
+            try {
+                const { data: { session }, error } = await supabase.auth.getSession();
+                if (isMounted) {
+                    setHasSession(!!session && !error);
+                }
+            } catch (error) {
+                console.error("Session check error:", error);
+                if (isMounted) setHasSession(false);
+            } finally {
+                if (isMounted) setSessionChecked(true);
+            }
         };
+        
         checkSession();
+
+        // Ultimate fallback to guarantee the loading screen clears
+        const fallback = setTimeout(() => {
+            if (isMounted && !sessionChecked) {
+                setSessionChecked(true);
+            }
+        }, 3000);
+
+        return () => {
+            isMounted = false;
+            clearTimeout(fallback);
+        };
     }, []);
 
     useEffect(() => {

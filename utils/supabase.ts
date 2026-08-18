@@ -8,17 +8,29 @@ const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 
 const ExpoSecureStoreAdapter = {
-  getItem: (key: string) => {
-    if (Platform.OS === 'web' && typeof window === 'undefined') return Promise.resolve(null);
-    return AsyncStorage.getItem(key);
+  getItem: async (key: string) => {
+    if (Platform.OS === 'web' && typeof window === 'undefined') return null;
+    try {
+      return await AsyncStorage.getItem(key);
+    } catch (e) {
+      return null;
+    }
   },
-  setItem: (key: string, value: string) => {
-    if (Platform.OS === 'web' && typeof window === 'undefined') return Promise.resolve();
-    return AsyncStorage.setItem(key, value);
+  setItem: async (key: string, value: string) => {
+    if (Platform.OS === 'web' && typeof window === 'undefined') return;
+    try {
+      await AsyncStorage.setItem(key, value);
+    } catch (e) {
+      // Ignore
+    }
   },
-  removeItem: (key: string) => {
-    if (Platform.OS === 'web' && typeof window === 'undefined') return Promise.resolve();
-    return AsyncStorage.removeItem(key);
+  removeItem: async (key: string) => {
+    if (Platform.OS === 'web' && typeof window === 'undefined') return;
+    try {
+      await AsyncStorage.removeItem(key);
+    } catch (e) {
+      // Ignore
+    }
   },
 };
 
