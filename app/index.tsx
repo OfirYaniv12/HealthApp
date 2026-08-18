@@ -17,14 +17,23 @@ export default function Index() {
 
         if (!hasHydratedInitially) {
             const unsubFinishHydration = useUserStore.persist.onFinishHydration(() => setHydrated(true));
+            const fallback = setTimeout(() => {
+                if (useUserStore.persist.hasHydrated()) {
+                    setHydrated(true);
+                } else {
+                    // Force hydration true after 2 seconds to unblock
+                    setHydrated(true);
+                }
+            }, 2000);
             return () => {
                 unsubFinishHydration();
+                clearTimeout(fallback);
             };
         }
     }, []);
 
     useEffect(() => {
-        // Force complete onboarding if the user profile is incomplete (e.g. from an older version of the schema)
+        // Force complete onboarding if the user profile is incomplete
         if (hydrated && user && !user.full_name) {
             resetUser();
         }
