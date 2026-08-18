@@ -1,4 +1,4 @@
-import { Workout, deleteWorkout, getLogicalDayWorkouts } from '@/db/database';
+import { Workout, deleteWorkout, getAllWorkouts } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
 import { getLogicalDayBounds } from '@/utils/calculators';
 import { Ionicons } from '@expo/vector-icons';
@@ -30,8 +30,7 @@ export default function WorkoutHistoryScreen() {
     const loadWorkouts = async () => {
         if (!user) return;
         try {
-            const { start, end } = getLogicalDayBounds(user.resetTime || '00:00');
-            const data = await getLogicalDayWorkouts(start, end);
+            const data = await getAllWorkouts();
             setWorkouts(data);
         } catch (e) {
             console.error('Error loading workouts:', e);
@@ -144,8 +143,8 @@ export default function WorkoutHistoryScreen() {
                 {workouts.length === 0 ? (
                     <View style={styles.emptyState}>
                         <Ionicons name="fitness-outline" size={64} color="#cbd5e1" />
-                        <Text style={styles.emptyTitle}>לא נרשמו אימונים להיום</Text>
-                        <Text style={styles.emptyDesc}>כאן יופיעו פרטי הפעילות הגופנית שלך.</Text>
+                        <Text style={styles.emptyTitle}>טרם נרשמו אימונים</Text>
+                        <Text style={styles.emptyDesc}>כאן יופיעו פרטי כלל הפעילויות הגופניות שלך לאורך הזמן.</Text>
 
                         <TouchableOpacity style={styles.addButton} onPress={() => router.push('/add-workout' as any)}>
                             <Ionicons name="add" size={20} color="#fff" />

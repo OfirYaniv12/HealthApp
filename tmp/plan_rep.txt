@@ -1,0 +1,15 @@
+export const generatePersonalizedPlan = async (user: UserData): Promise<{ targets: UserData['daily_targets'], explanation: string } | null> => {
+    if (!apiKey) return null;
+    if (!checkAndIncrementRateLimits()) return null;
+
+    try {
+        const userDataMsg = `גיל: ${user.age}\nמין: ${user.gender}\nגובה: ${user.height} ס"מ\nמשקל: ${user.weight} ק"ג\nמטרה: ${user.goal}\nרמת פעילות: ${user.activity_level}\nאימונים בשבוע: ${user.workout_frequency}\nמבנה גוף: ${user.body_type}`;
+        const result = await ai.models.generateContent({
+            model: 'gemini-3.1-flash-lite-preview',
+            contents: userDataMsg,
+            config: { systemInstruction: NUTRITIONIST_SYSTEM_PROMPT, temperature: 0.1, thinkingConfig: { thinkingBudget: 2048 } }
+        });
+        const parsed = JSON.parse((result.text || '{}').replace(/```json|```/g, ''));
+        return { targets: parsed.targets, explanation: parsed.explanation };
+    } catch (e: any) { return null; }
+};

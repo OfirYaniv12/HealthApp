@@ -1,0 +1,66 @@
+export const generateNutritionResponse = async (history: { role: 'user' | 'model', parts: { text: string }[] }[], newMessageText: string, imageBase64?: string): Promise<AIResponse> => {
+    if (!apiKey) return { isMeal: false, textResponse: 'מפתח API חסר.' };
+    if (!checkAndIncrementRateLimits()) return { isMeal: false, textResponse: 'הגעת למגבלת קצב. המתן מעט.' };
+
+    try {
+        let parts: any[] = [{ text: newMessageText }];
+        if (imageBase64) {
+            parts.push({
+                inlineData: {
+                    data: imageBase64.split(',')[1] || imageBase64,
+                    mimeType: 'image/jpeg'
+                }
+            });
+        }
+
+        const timeoutPromise = new Promise<any>((_, reject) => {
+            setTimeout(() => reject(new Error('TIMEOUT')), 10000);
+        });
+
+        const apiPromise = ai.models.generateContent({
+            model: 'gemini-3.1-flash-lite-preview',
+            contents: [{ role: 'user', parts: parts }],
+            config: {
+                systemInstruction: SYSTEM_PROMPT,
+                temperature: 0.1,
+                thinkingConfig: { thinkingBudget: 1024 }
+            }
+        });
+
+        const result = await Promise.race([apiPromise, timeoutPromise]);
+        const responseText = result.text || '';
+
+        let rawJsonStr = responseText.trim();
+        if (rawJsonStr.startsWith('```json')) {
+            rawJsonStr = rawJsonStr.replace(/^```json/, '').replace(/```$/, '').trim();
+        } else if (rawJsonStr.startsWith('```')) {
+            rawJsonStr = rawJsonStr.replace(/^```/, '').replace(/```$/, '').trim();
+        }
+
+        try {
+            const parsed = JSON.parse(rawJsonStr);
+            if (parsed.isMeal) {
+                return {
+                    isMeal: true,
+                    mealData: {
+                        name: parsed.name,
+                        calories: parsed.calories,
+                        protein: parsed.protein,
+                        fat: parsed.fat,
+                        carbs: parsed.carbs,
+                        fiber: parsed.fiber || 0,
+                        sodium: parsed.sodium || 0,
+                        sugar: parsed.sugar || 0,
+                        summary: parsed.summary
+                    }
+                };
+            } else {
+                return { isMeal: false, textResponse: parsed.textResponse || 'לא הבנתי את התשובה.' };
+            }
+        } catch (jsonError) {
+            return { isMeal: false, textResponse: responseText };
+        }
+    } catch (e: any) {
+        return { isMeal: false, textResponse: 'שגיאת AI.' };
+    }
+};

@@ -1,0 +1,26 @@
+export const generateDailyScoreExplanation = async (score: any, consumptionStr: string, isWorkoutLogged: boolean, userGoal?: string, loggedFoodsStr?: string): Promise<string | null> => {
+    if (!apiKey) return null;
+    if (!checkAndIncrementRateLimits()) return null;
+    try {
+        const result = await ai.models.generateContent({
+            model: 'gemini-3.1-flash-lite-preview',
+            contents: consumptionStr,
+            config: { thinkingConfig: { thinkingBudget: 1024 } }
+        });
+        return result.text || '';
+    } catch (e: any) { return null; }
+};
+
+export const generateDailyRecommendations = async (meals: Meal[], workouts: Workout[], targets: any, userGoal?: string): Promise<{ short: string[], full: string } | null> => {
+    if (!apiKey) return null;
+    if (!checkAndIncrementRateLimits()) return null;
+    try {
+        const result = await ai.models.generateContent({
+            model: 'gemini-3.1-flash-lite-preview',
+            contents: 'recommendations',
+            config: { thinkingConfig: { thinkingBudget: 2048 } }
+        });
+        const parsed = JSON.parse((result.text || '{}').replace(/```json|```/g, ''));
+        return { short: parsed.short || [], full: parsed.full || "" };
+    } catch (e: any) { return null; }
+};

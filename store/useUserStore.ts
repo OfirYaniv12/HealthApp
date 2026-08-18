@@ -29,13 +29,15 @@ export interface UserData {
     aiPlanExplanation?: string;
     dailyScoreExplanations?: Record<string, string>;
     dailyScoreLastUpdated?: Record<string, number>; // Maps date string to timestamp indicating when explanation was generated
+    dailyScoreExplanationHashes?: Record<string, string>; // Maps date string to state fingerprint hash
     dailyScoreData?: Record<string, any>; // Centralized exact score objects
-    dailyRecommendations?: {
+    dailyRecommendations?: { // Note: previous dailyRecommendations name supported
         dateStr: string;
         hash: string;
         timestamp: number;
         data: { short: string[]; full: string };
     };
+    aiDailyCount?: { count: number; dateStr: string };
 }
 
 interface UserState {
@@ -44,9 +46,11 @@ interface UserState {
     updateTargets: (targets: UserData['daily_targets']) => void;
     updateTrackedNutrients: (nutrients: Record<string, boolean>) => void;
     updateAiPlan: (targets: UserData['daily_targets'], explanation: string) => void;
-    setDailyScoreExplanation: (dateStr: string, explanation: string, timestamp?: number) => void;
+    setDailyScoreExplanation: (dateStr: string, explanation: string, hash: string, timestamp?: number) => void;
     setDailyScoreData: (dateStr: string, scoreData: any) => void;
     setDailyRecommendations: (dateStr: string, hash: string, timestamp: number, data: { short: string[]; full: string }) => void;
+    incrementDailyAiCount: () => void;
+    triggerAiPlanUpdate: () => Promise<void>;
     resetUser: () => void;
 }
 
@@ -67,7 +71,7 @@ export const useUserStore = create<UserState>()(
                 set((state) => ({
                     user: state.user ? { ...state.user, daily_targets: targets, aiPlanExplanation: explanation } : null
                 })),
-            setDailyScoreExplanation: (date: string, explanation: string, timestamp?: number) => {
+            setDailyScoreExplanation: (date: string, explanation: string, hash: string, timestamp?: number) => {
                 set((state) => ({
                     user: state.user
                         ? {
@@ -75,6 +79,10 @@ export const useUserStore = create<UserState>()(
                             dailyScoreExplanations: {
                                 ...(state.user.dailyScoreExplanations || {}),
                                 [date]: explanation,
+                            },
+                            dailyScoreExplanationHashes: {
+                                ...(state.user.dailyScoreExplanationHashes || {}),
+                                [date]: hash,
                             },
                             dailyScoreLastUpdated: {
                                 ...(state.user.dailyScoreLastUpdated || {}),
@@ -107,6 +115,37 @@ export const useUserStore = create<UserState>()(
                         }
                     };
                 }),
+            incrementDailyAiCount: () =>
+                set((state) => {
+                    if (!state.user) return state;
+                    const today = new Date().toISOString().split('T')[0];
+                    const current = state.user.aiDailyCount || { count: 0, dateStr: today };
+                    const isSameFullDay = current.dateStr === today;
+                    return {
+                        user: {
+                            ...state.user,
+                            aiDailyCount: {
+                                count: isSameFullDay ? current.count + 1 : 1,
+                                dateStr: today
+                            }
+                        }
+                    };
+                }),
+            triggerAiPlanUpdate: async () => {
+                const state = useUserStore.getState();
+                if (!state.user) return;
+                try {
+                    const { generatePersonalizedPlan } = require('@/utils/ai');
+                    const result = await generatePersonalizedPlan(state.user);
+                    if (result) {
+                        set((s) => ({
+                            user: s.user ? { ...s.user, daily_targets: result.targets, aiPlanExplanation: result.explanation } : null
+                        }));
+                    }
+                } catch (e) {
+                    console.error('Failed to trigger AI plan update:', e);
+                }
+            },
             resetUser: () => set({ user: null }),
         }),
         {

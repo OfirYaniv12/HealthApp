@@ -1,5 +1,6 @@
 import { addMeal, getRecipeCategories, getRecipesWithCategories, Recipe, RecipeCategory, updateRecipeLastCooked } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
+import { useChatStore, ChatMessage as Message } from '@/store/useChatStore';
 import { generateNutritionResponse } from '@/utils/ai';
 import { getActiveNutrients, nutrientLabelsLoc } from '@/utils/nutrients';
 import { triggerScoreExplanationUpdate } from '@/utils/scoreUpdater';
@@ -21,22 +22,13 @@ if (!I18nManager.isRTL) {
     I18nManager.forceRTL(true);
 }
 
-type Message = {
-    id: string;
-    sender: 'user' | 'bot';
-    text?: string;
-    image?: string;
-    isMealCard?: boolean;
-    mealData?: { name: string; calories: number; protein: number; carbs: number; fat: number; fiber?: number; sodium?: number; sugar?: number; summary?: string };
-};
+
 
 export default function AddMealChatScreen() {
     const user = useUserStore(state => state.user);
     const tracked = user?.trackedNutrients || {};
     const router = useRouter();
-    const [messages, setMessages] = useState<Message[]>([
-        { id: '1', sender: 'bot', text: 'היי! אני עוזר התזונה מבוסס ה-AI של HealthApp. מה אכלת היום?' }
-    ]);
+    const { messages, setMessages } = useChatStore();
     const [inputText, setInputText] = useState('');
     const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
     const [isTyping, setIsTyping] = useState(false);
@@ -145,20 +137,31 @@ export default function AddMealChatScreen() {
 
             setIsTyping(false);
 
+            if (aiResponse.limitReached) {
+                setMessages(prev => [...prev, {
+                    id: (Date.now() + 1).toString(),
+                    sender: 'bot',
+                    text: 'מצטער, הפעולה נכשלה. כל המודלים הגיעו למגבלת השימוש היומית שלהם. אנא נסה שוב מאוחר יותר.'
+                }]);
+                return;
+            }
+
             if (aiResponse.isMeal && aiResponse.mealData) {
                 const botMsg: Message = {
                     id: (Date.now() + 1).toString(),
                     sender: 'bot',
                     isMealCard: true,
                     text: `פענחתי את הארוחה בהצלחה באמצעות מנוע הערכת התזונה:\n\n${aiResponse.mealData.summary || 'מבוסס על נתונים מאומתים וניתוח סמנטי.'}`,
-                    mealData: aiResponse.mealData
+                    mealData: aiResponse.mealData,
+                    usedModel: aiResponse.usedModel
                 };
                 setMessages(prev => [...prev, botMsg]);
             } else {
                 setMessages(prev => [...prev, {
                     id: (Date.now() + 1).toString(),
                     sender: 'bot',
-                    text: aiResponse.textResponse || 'אוקיי, הבנתי.'
+                    text: aiResponse.textResponse || 'אוקיי, הבנתי.',
+                    usedModel: aiResponse.usedModel
                 }]);
             }
         } catch (error) {
@@ -180,26 +183,23 @@ export default function AddMealChatScreen() {
             await updateRecipeLastCooked(selectedRecipe.id!, new Date().toISOString());
         } catch (e) { console.error("Failed to update last cooked", e); }
 
-        if (!recipeMods.trim() && selectedRecipe.nutritional_values) {
-            // No mods, just add the base recipe totals
+        if (!recipeMods.trim()) {
+            // No mods, just add the base recipe totals directly from columns
             try {
-                let calcTotals: any = { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sodium: 0, sugar: 0 };
-                const arr = JSON.parse(selectedRecipe.nutritional_values);
-                const ings = Array.isArray(arr) ? arr : Object.values(arr);
-                ings.forEach((ing: any) => {
-                    calcTotals.calories += (ing.calories || 0);
-                    calcTotals.protein += (ing.protein || 0);
-                    calcTotals.carbs += (ing.carbs || 0);
-                    calcTotals.fat += (ing.fat || 0);
-                    calcTotals.fiber += (ing.fiber || 0);
-                    calcTotals.sodium += (ing.sodium || 0);
-                    calcTotals.sugar += (ing.sugar || 0);
-                });
+                const calcTotals = {
+                    calories: selectedRecipe.calories || 0,
+                    protein: selectedRecipe.protein || 0,
+                    carbs: selectedRecipe.carbs || 0,
+                    fat: selectedRecipe.fat || 0,
+                    fiber: selectedRecipe.fiber || 0,
+                    sodium: selectedRecipe.sodium || 0,
+                    sugar: selectedRecipe.sugar || 0
+                };
 
                 await addFoodToLog({
                     name: selectedRecipe.name,
                     ...calcTotals
-                }, true);
+                });
             } catch (e) {
                 Alert.alert('שגיאה', 'לא ניתן לקרוא את ערכי המתכון הבסיסיים.');
             }
@@ -214,8 +214,12 @@ export default function AddMealChatScreen() {
             try {
                 const aiResponse = await generateNutritionResponse(history, prompt);
                 setIsTyping(false);
+                if (aiResponse.limitReached) {
+                    Alert.alert('שגיאה בתקשורת', 'כל המודלים הגיעו למגבלת השימוש. נסה שוב מאוחר יותר.');
+                    return;
+                }
                 if (aiResponse.isMeal && aiResponse.mealData) {
-                    await addFoodToLog(aiResponse.mealData, true);
+                    await addFoodToLog(aiResponse.mealData);
                 } else {
                     Alert.alert('שגיאה', 'מנוע ה-AI לא הצליח לנתח את השינויים ולשמור כארוחה.');
                 }
@@ -293,11 +297,18 @@ export default function AddMealChatScreen() {
                                     </TouchableOpacity>
                                 </View>
                             )}
+                            
+                            {msg.usedModel && msg.sender === 'bot' && (
+                                <Text style={{ fontSize: 10, color: '#94a3b8', textAlign: 'right', marginTop: 8 }}>
+                                    ⚡ מודל בחירה: {msg.usedModel}
+                                </Text>
+                            )}
                         </View>
                     ))}
                     {isTyping && (
-                        <View style={[styles.messageBubble, styles.botBubble, { paddingVertical: 12 }]}>
+                        <View style={[styles.messageBubble, styles.botBubble, { paddingVertical: 12, flexDirection: 'row-reverse', alignItems: 'center', gap: 8 }]}>
                             <ActivityIndicator size="small" color="#3b82f6" />
+                            <Text style={styles.botText}>Chatting...</Text>
                         </View>
                     )}
                 </ScrollView>
@@ -422,19 +433,27 @@ export default function AddMealChatScreen() {
                                             recipeTotals.sugar += (ing.sugar || 0);
                                         });
                                     } catch (e) { }
+                                } else {
+                                    // Manual recipe fallback
+                                    recipeTotals = {
+                                        calories: item.calories || 0,
+                                        protein: item.protein || 0,
+                                        carbs: item.carbs || 0,
+                                        fat: item.fat || 0,
+                                        fiber: item.fiber || 0,
+                                        sodium: item.sodium || 0,
+                                        sugar: item.sugar || 0
+                                    };
                                 }
 
+                                console.log('Rendering listing text only for', item.name);
                                 return (
                                     <TouchableOpacity key={item.id} style={styles.recipeCard} onPress={() => setExpandedRecipeId(isExpanded ? null : item.id!)} activeOpacity={0.8}>
                                         <View style={{ flexDirection: 'row-reverse', alignItems: 'center' }}>
-                                            {item.image_uri ? (
-                                                <Image source={{ uri: item.image_uri }} style={styles.recipeThumbnail} />
-                                            ) : (
-                                                <View style={[styles.recipeThumbnail, { backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center' }]}>
-                                                    <Ionicons name="restaurant-outline" size={24} color="#cbd5e1" />
-                                                </View>
+                                            {item.image_uri && (
+                                                <Image source={{ uri: item.image_uri }} style={{ width: 50, height: 50, borderRadius: 8, marginLeft: 12, backgroundColor: '#f1f5f9' }} />
                                             )}
-                                            <View style={{ flex: 1, paddingRight: 12 }}>
+                                            <View style={{ flex: 1 }}>
                                                 <Text style={styles.recipeName}>{item.name}</Text>
                                                 <Text style={styles.recipeCategory}>{item.category_name || 'כללי'}</Text>
                                             </View>
@@ -584,7 +603,7 @@ const styles = StyleSheet.create({
     filterChipText: { color: '#64748b', fontWeight: '600', fontSize: 14 },
     filterChipTextActive: { color: '#fff' },
     recipeCard: { backgroundColor: '#fff', borderRadius: 16, padding: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 3 },
-    recipeThumbnail: { width: 56, height: 56, borderRadius: 12 },
+    recipeThumbnail: { width: 80, height: 80, borderRadius: 12 },
     recipeName: { fontSize: 17, fontWeight: 'bold', color: '#1e293b', textAlign: 'right' },
     recipeCategory: { fontSize: 13, color: '#3b82f6', marginTop: 4, textAlign: 'right', fontWeight: '600' },
     selectRecipeBtn: { backgroundColor: '#3b82f6', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },

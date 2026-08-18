@@ -18,13 +18,25 @@ export default function DailyScoreScreen() {
     const user = useUserStore(state => state.user);
 
     const [popupInfo, setPopupInfo] = useState<'nutrition' | 'workout' | null>(null);
+    const [isLoadingAI, setIsLoadingAI] = useState(false);
 
     const todayDateStr = new Date().toISOString().split('T')[0];
     const rawExplanation = user?.dailyScoreExplanations?.[todayDateStr];
-    const hasError = rawExplanation?.includes('שגיאה') || rawExplanation?.includes('API') || rawExplanation?.includes('מנסה שוב');
-    const aiExplanation = hasError || !rawExplanation
-        ? 'ה-AI מכין עבורך הסבר מותאם אישית... הוא יופיע כאן בעוד מספר שניות לאחר שתוסיף ארוחה או תחזור למסך זה.'
-        : rawExplanation;
+    const lastUpdatedTimestamp = user?.dailyScoreLastUpdated?.[todayDateStr] || 0;
+    
+    let aiExplanationText = 'ה-AI מכין עבורך הסבר מותאם אישית...';
+    if (rawExplanation) {
+        try {
+            if (rawExplanation.trim().startsWith('{')) {
+                const parsed = JSON.parse(rawExplanation);
+                aiExplanationText = parsed.explanation || rawExplanation;
+            } else {
+                aiExplanationText = rawExplanation;
+            }
+        } catch (e) {
+            aiExplanationText = rawExplanation;
+        }
+    }
 
     useFocusEffect(
         useCallback(() => {
@@ -34,15 +46,18 @@ export default function DailyScoreScreen() {
 
                 await refreshDailyScoreData();
 
-                // Trigger AI explanation only if cache is stale (>1 hour)
-                const lastUpdatedTimestamp = useUserStore.getState().user?.dailyScoreLastUpdated?.[todayDateStr] || 0;
+                const lastUpdate = useUserStore.getState().user?.dailyScoreLastUpdated?.[todayDateStr] || 0;
+                const currentExplanation = useUserStore.getState().user?.dailyScoreExplanations?.[todayDateStr];
                 const ONE_HOUR_MS = 60 * 60 * 1000;
-                if (Date.now() - lastUpdatedTimestamp > ONE_HOUR_MS) {
-                    triggerScoreExplanationUpdate(); // Background, does not block render
+                
+                if (Date.now() - lastUpdate > ONE_HOUR_MS || !currentExplanation) {
+                    setIsLoadingAI(true);
+                    await triggerScoreExplanationUpdate();
+                    setIsLoadingAI(false);
                 }
             };
             loadData();
-        }, []) // ✅ Empty deps: fires once per focus, not on every store update
+        }, [])
     );
 
     const scoreData = user?.dailyScoreData?.[todayDateStr] || {
@@ -116,9 +131,28 @@ export default function DailyScoreScreen() {
                         <View style={styles.card}>
                             <Text style={styles.sectionTitle}>הסבר לציון</Text>
 
-                            <View style={styles.aiContainer}>
-                                <Text style={styles.aiExplanationText}>{aiExplanation}</Text>
-                            </View>
+                            {isLoadingAI ? (
+                                <View style={styles.aiLoadingContainer}>
+                                    <ActivityIndicator size="small" color="#6366f1" />
+                                    <Text style={styles.aiLoadingText}>ה-AI מנתח את היום שלך...</Text>
+                                </View>
+                            ) : (
+                                <View style={[styles.aiContainer, { flexDirection: 'column', alignItems: 'flex-end' }]}>
+                                    {aiExplanationText.split('\n').map((line, index) => (
+                                        line.trim() ? (
+                                            <Text key={index} style={[styles.aiExplanationText, { marginBottom: 6 }]}>
+                                                {line.trim()}
+                                            </Text>
+                                        ) : null
+                                    ))}
+                                </View>
+                            )}
+
+                            {lastUpdatedTimestamp > 0 && (
+                                <Text style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center', marginTop: 12 }}>
+                                    עדכון אחרון: {new Date(lastUpdatedTimestamp).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+                                </Text>
+                            )}
                         </View>
 
                         <View style={styles.card}>

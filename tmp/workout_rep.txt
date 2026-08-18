@@ -1,0 +1,15 @@
+export const estimateTemplateWorkout = async (user: UserData, templateName: string, templateDescription: string | null, userNotes: string | null, durationMinutes: number) => {
+    if (!apiKey) return null;
+    if (!checkAndIncrementRateLimits()) return null;
+
+    try {
+        const promptMsg = `Workout: ${templateName}, Duration: ${durationMinutes} mins`;
+        const result = await ai.models.generateContent({
+            model: 'gemini-3.1-flash-lite-preview',
+            contents: promptMsg,
+            config: { systemInstruction: TEMPLATE_WORKOUT_PROMPT, temperature: 0.1, thinkingConfig: { thinkingBudget: 1024 } }
+        });
+        const parsed = JSON.parse((result.text || '{}').replace(/```json|```/g, ''));
+        return { calories_burned: parsed.calories_burned, summary: parsed.summary };
+    } catch (e: any) { return null; }
+};

@@ -111,6 +111,11 @@ export const initDB = async () => {
   try { await database.execAsync(`ALTER TABLE recipes ADD COLUMN image_uri TEXT;`); } catch (e) { }
   try { await database.execAsync(`ALTER TABLE recipes ADD COLUMN health_score INTEGER;`); } catch (e) { }
   try { await database.execAsync(`ALTER TABLE recipes ADD COLUMN nutritional_values TEXT;`); } catch (e) { }
+
+  // Migrations for My Workouts V2
+  try { await database.execAsync(`ALTER TABLE workout_templates ADD COLUMN exercises TEXT;`); } catch (e) { }
+  try { await database.execAsync(`ALTER TABLE workout_templates ADD COLUMN summary TEXT;`); } catch (e) { }
+  try { await database.execAsync(`ALTER TABLE workouts ADD COLUMN exercises TEXT;`); } catch (e) { }
 };
 
 export interface Meal {
@@ -169,6 +174,7 @@ export interface Workout {
   duration_minutes: number;
   calories_burned: number;
   description?: string | null;
+  exercises?: string | null;
   timestamp: string;
 }
 
@@ -176,13 +182,14 @@ export const addWorkout = async (workout: Omit<Workout, 'id'>) => {
   const database = await getDB();
 
   const result = await database.runAsync(
-    `INSERT INTO workouts(name, duration_minutes, calories_burned, description, timestamp)
-     VALUES(?, ?, ?, ?, ?)`,
+    `INSERT INTO workouts(name, duration_minutes, calories_burned, description, exercises, timestamp)
+     VALUES(?, ?, ?, ?, ?, ?)`,
     [
       workout.name,
       workout.duration_minutes,
       workout.calories_burned,
       workout.description || null,
+      workout.exercises || null,
       workout.timestamp
     ]
   );
@@ -194,6 +201,14 @@ export const getLogicalDayWorkouts = async (startIso: string, endIso: string) =>
   const logs = await database.getAllAsync<Workout>(
     `SELECT * FROM workouts WHERE timestamp >= ? AND timestamp < ? ORDER BY timestamp DESC`,
     [startIso, endIso]
+  );
+  return logs;
+};
+
+export const getAllWorkouts = async () => {
+  const database = await getDB();
+  const logs = await database.getAllAsync<Workout>(
+    `SELECT * FROM workouts ORDER BY timestamp DESC`
   );
   return logs;
 };
@@ -216,6 +231,8 @@ export interface WorkoutTemplate {
   name: string;
   category_id: number | null;
   description?: string | null;
+  exercises?: string | null;
+  summary?: string | null;
   last_performed_date?: string | null;
   category_name?: string; // Joined property
 }
@@ -235,6 +252,11 @@ export const addWorkoutCategory = async (name: string) => {
   return { id: result.lastInsertRowId, name } as WorkoutCategory;
 };
 
+export const deleteWorkoutCategory = async (id: number) => {
+  const database = await getDB();
+  return await database.runAsync(`DELETE FROM workout_categories WHERE id = ?`, [id]);
+};
+
 export const getWorkoutTemplates = async () => {
   const database = await getDB();
   return await database.getAllAsync<WorkoutTemplate>(`
@@ -245,11 +267,28 @@ export const getWorkoutTemplates = async () => {
   `);
 };
 
+export const getWorkoutTemplateById = async (id: number) => {
+  const database = await getDB();
+  return await database.getFirstAsync<WorkoutTemplate>(`
+    SELECT t.*, c.name as category_name 
+    FROM workout_templates t 
+    LEFT JOIN workout_categories c ON t.category_id = c.id 
+    WHERE t.id = ?
+  `, [id]);
+};
+
 export const addWorkoutTemplate = async (template: Omit<WorkoutTemplate, 'id' | 'category_name'>) => {
   const database = await getDB();
   const result = await database.runAsync(
-    `INSERT INTO workout_templates(name, category_id, description, last_performed_date) VALUES(?, ?, ?, ?)`,
-    [template.name, template.category_id, template.description || null, template.last_performed_date || null]
+    `INSERT INTO workout_templates(name, category_id, description, exercises, summary, last_performed_date) VALUES(?, ?, ?, ?, ?, ?)`,
+    [
+      template.name, 
+      template.category_id, 
+      template.description || null, 
+      template.exercises || null,
+      template.summary || null,
+      template.last_performed_date || null
+    ]
   );
   return result;
 };
@@ -259,6 +298,14 @@ export const updateWorkoutTemplateLastPerformed = async (id: number, dateIso: st
   return await database.runAsync(
     `UPDATE workout_templates SET last_performed_date = ? WHERE id = ?`,
     [dateIso, id]
+  );
+};
+
+export const updateWorkoutTemplateExercises = async (id: number, exercisesJson: string) => {
+  const database = await getDB();
+  return await database.runAsync(
+    `UPDATE workout_templates SET exercises = ? WHERE id = ?`,
+    [exercisesJson, id]
   );
 };
 
@@ -346,6 +393,7 @@ export const addRecipe = async (recipe: Omit<Recipe, 'id' | 'category_name'>) =>
       recipe.last_cooked_date || null,
       recipe.image_uri || null,
       recipe.health_score || null,
+      recipe.nutritional_values || null
     ]
   );
   return result;
@@ -375,14 +423,26 @@ export const updateRecipe = async (
   name: string,
   category_id: number | null,
   ingredients_list: string,
-  instructions: string | null
+  instructions: string | null,
+  calories: number,
+  protein: number,
+  carbs: number,
+  fat: number,
+  fiber?: number,
+  sodium?: number,
+  sugar?: number
 ) => {
   const database = await getDB();
   return await database.runAsync(
     `UPDATE recipes 
-     SET name = ?, category_id = ?, ingredients_list = ?, instructions = ? 
+     SET name = ?, category_id = ?, ingredients_list = ?, instructions = ?, 
+         calories = ?, protein = ?, carbs = ?, fat = ?, fiber = ?, sodium = ?, sugar = ?
      WHERE id = ?`,
-    [name, category_id, ingredients_list, instructions, id]
+    [
+      name, category_id, ingredients_list, instructions || null, 
+      calories, protein, carbs, fat, fiber || 0, sodium || 0, sugar || 0, 
+      id
+    ]
   );
 };
 

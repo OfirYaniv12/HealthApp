@@ -19,7 +19,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.ofir.healthapp",
       "infoPlist": {
-        "ExpoLocalization_supportsRTL": true
+        "ExpoLocalization_supportsRTL": true,
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

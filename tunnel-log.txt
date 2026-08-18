@@ -1,0 +1,6 @@
+﻿env: load .env
+env: export EXPO_PUBLIC_GEMINI_API_KEY
+Starting project at C:\Users\Ofir\Desktop\HealthApp
+React Compiler enabled
+Metro is running in CI mode, reloads are disabled. Remove CI=true to enable watch mode.
+Starting Metro Bundler

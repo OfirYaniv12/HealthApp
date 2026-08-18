@@ -1,0 +1,16 @@
+export const generateWorkoutResponse = async (history: { role: 'user' | 'model', parts: { text: string }[] }[], newMessageText: string, userWeightKg: number): Promise<WorkoutPlan> => {
+    if (!apiKey) return { isWorkout: false, textResponse: 'מפתח API חסר.' };
+    if (!checkAndIncrementRateLimits()) return { isWorkout: false, textResponse: 'הגעת למגבלת קצב. המתן מעט.' };
+
+    try {
+        const chat = ai.chats.create({
+            model: 'gemini-3.1-flash-lite-preview',
+            history: history,
+            config: { systemInstruction: WORKOUT_SYSTEM_PROMPT, temperature: 0.1, thinkingConfig: { thinkingBudget: 1024 } }
+        });
+        const result = await chat.sendMessage({ message: newMessageText });
+        const parsed = JSON.parse((result.text || '{}').replace(/```json|```/g, ''));
+        if (parsed.isWorkout) return { isWorkout: true, workoutData: parsed.workoutData };
+        return { isWorkout: false, textResponse: parsed.textResponse };
+    } catch (e: any) { return { isWorkout: false, textResponse: 'שגיאת AI.' }; }
+};

@@ -33,6 +33,22 @@ export default function NutritionalAnalysisScreen() {
 
     if (!user) return null;
 
+    const todayDateStr = new Date().toISOString().split('T')[0];
+    const scoreExpCache = user.dailyScoreExplanations?.[todayDateStr];
+    let aiStatuses: Record<string, string> = {};
+    if (scoreExpCache) {
+        try {
+            const parsed = JSON.parse(scoreExpCache);
+            aiStatuses = parsed.statuses || {};
+        } catch (e) {}
+    }
+
+    const colorMap: Record<string, string> = {
+        green: '#10b981',
+        yellow: '#f59e0b',
+        red: '#ef4444'
+    };
+
     const { daily_targets } = user;
     const tracked = user.trackedNutrients || {};
     const isEnabled = (key: string, def: boolean) => tracked[key] !== undefined ? tracked[key] : def;
@@ -88,7 +104,11 @@ export default function NutritionalAnalysisScreen() {
 
                 <View style={styles.accordionContainer}>
                     {tabs.map(tab => {
-                        const progress = Math.min((tab.total / tab.target) * 100, 100);
+                        const progress = (tab.total / tab.target) * 100;
+                        const barWidth = Math.min(progress, 100);
+                        const status = aiStatuses[tab.key] || 'green';
+                        const barColor = colorMap[status] || '#3b82f6';
+                        
                         const isExpanded = expandedTab === tab.key;
                         const sortedMeals = [...meals].sort((a, b) => (b[tab.key] || 0) - (a[tab.key] || 0));
 
@@ -102,9 +122,9 @@ export default function NutritionalAnalysisScreen() {
 
                                     <View style={styles.progressMasterRow}>
                                         <View style={styles.progressBarBg}>
-                                            <View style={[styles.progressBarFill, { width: `${progress}%` }]} />
+                                            <View style={[styles.progressBarFill, { width: `${barWidth}%`, backgroundColor: barColor }]} />
                                         </View>
-                                        <Text style={styles.progressPercentage}>{Math.round(progress)}%</Text>
+                                        <Text style={[styles.progressPercentage, { color: barColor }]}>{Math.round(progress)}%</Text>
                                         <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={20} color="#94a3b8" style={styles.chevronIcon} />
                                     </View>
                                 </TouchableOpacity>

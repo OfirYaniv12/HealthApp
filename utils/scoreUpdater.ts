@@ -40,11 +40,21 @@ export const triggerScoreExplanationUpdate = async () => {
 
         const { meals, workouts, score, user, todayDateStr } = data;
 
-        // ✅ CACHE GUARD: Only call the AI at most once per hour to protect the quota.
+        // Calculate Data Fingerprint for reactive triggers on logs change
+        const mealFingerprint = (meals as Meal[]).map(m => m.id).sort().join(',');
+        const workoutFingerprint = (workouts as Workout[]).map(w => w.id).sort().join(',');
+        const newHash = `${mealFingerprint}|${workoutFingerprint}`;
+
         const lastUpdated = user.dailyScoreLastUpdated?.[todayDateStr] || 0;
+        const previousHash = user.dailyScoreExplanationHashes?.[todayDateStr] || '';
+        
         const ONE_HOUR = 60 * 60 * 1000;
-        if (Date.now() - lastUpdated < ONE_HOUR) {
-            return; // Already have a fresh score explanation, skip the API call
+        const isRecent = Date.now() - lastUpdated < ONE_HOUR;
+        const isSameHash = previousHash === newHash;
+
+        // ✅ CACHE GUARD: Only skip if SAME HASH AND RECENT (within hour)
+        if (isSameHash && isRecent) {
+            return;
         }
 
         // Build consumption string for AI context
@@ -74,7 +84,7 @@ export const triggerScoreExplanationUpdate = async () => {
         }
 
         // Save to store with timestamp so 1-hour guard works correctly
-        useUserStore.getState().setDailyScoreExplanation(todayDateStr, explanation);
+        useUserStore.getState().setDailyScoreExplanation(todayDateStr, explanation, newHash);
 
     } catch (e) {
         console.error('Background score update failed:', e);

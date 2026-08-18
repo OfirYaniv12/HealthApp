@@ -1,5 +1,6 @@
 import { addWorkout } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
+import { useWorkoutChatStore, WorkoutChatMessage as Message } from '@/store/useWorkoutChatStore';
 import { generateWorkoutResponse } from '@/utils/ai';
 import { triggerScoreExplanationUpdate } from '@/utils/scoreUpdater';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,22 +20,13 @@ if (!I18nManager.isRTL) {
     I18nManager.forceRTL(true);
 }
 
-type Message = {
-    id: string;
-    sender: 'user' | 'bot';
-    text?: string;
-    image?: string;
-    isWorkoutCard?: boolean;
-    workoutData?: { name: string; duration_minutes: number; calories_burned: number; summary?: string };
-};
+
 
 export default function AddWorkoutChatScreen() {
     const user = useUserStore(state => state.user);
     const tracked = user?.trackedNutrients || {};
     const router = useRouter();
-    const [messages, setMessages] = useState<Message[]>([
-        { id: '1', sender: 'bot', text: 'היי! איזה אימון עשית ולכמה זמן?' }
-    ]);
+    const { messages, setMessages } = useWorkoutChatStore();
     const [inputText, setInputText] = useState('');
     const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
     const [isTyping, setIsTyping] = useState(false);
@@ -108,20 +100,31 @@ export default function AddWorkoutChatScreen() {
 
             setIsTyping(false);
 
+            if (aiResponse.limitReached) {
+                setMessages(prev => [...prev, {
+                    id: (Date.now() + 1).toString(),
+                    sender: 'bot',
+                    text: 'מצטער, הפעולה נכשלה. כל המודלים הגיעו למגבלת השימוש היומית שלהם. אנא נסה שוב מאוחר יותר.'
+                }]);
+                return;
+            }
+
             if (aiResponse.isWorkout && aiResponse.workoutData) {
                 const botMsg: Message = {
                     id: (Date.now() + 1).toString(),
                     sender: 'bot',
                     isWorkoutCard: true,
                     text: `פענחתי את האימון בהצלחה:\n\n${aiResponse.workoutData.summary || 'מבוסס על נתונים מאומתים.'}`,
-                    workoutData: aiResponse.workoutData
+                    workoutData: aiResponse.workoutData,
+                    usedModel: aiResponse.usedModel
                 };
                 setMessages(prev => [...prev, botMsg]);
             } else {
                 setMessages(prev => [...prev, {
                     id: (Date.now() + 1).toString(),
                     sender: 'bot',
-                    text: aiResponse.textResponse || 'אוקיי, הבנתי.'
+                    text: aiResponse.textResponse || 'אוקיי, הבנתי.',
+                    usedModel: aiResponse.usedModel
                 }]);
             }
         } catch (error) {
@@ -187,6 +190,12 @@ export default function AddWorkoutChatScreen() {
                                         <Text style={styles.confirmButtonText}>הוסף למעקב</Text>
                                     </TouchableOpacity>
                                 </View>
+                            )}
+
+                            {msg.usedModel && msg.sender === 'bot' && (
+                                <Text style={{ fontSize: 10, color: '#94a3b8', textAlign: 'right', marginTop: 8 }}>
+                                    ⚡ מודל בחירה: {msg.usedModel}
+                                </Text>
                             )}
                         </View>
                     ))}

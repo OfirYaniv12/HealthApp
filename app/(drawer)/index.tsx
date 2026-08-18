@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { DrawerActions, useNavigation } from '@react-navigation/native';
 import React, { useCallback, useState } from 'react';
 import { I18nManager, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import NutrientModal from '@/components/NutrientModal';
 
 // Force RTL layout 
 import { Meal, Workout, getLogicalDayMeals, getLogicalDayWorkouts } from '@/db/database';
@@ -23,6 +24,8 @@ export default function DashboardScreen() {
 
   const [foodLogs, setFoodLogs] = useState<Meal[]>([]);
   const [workoutLogs, setWorkoutLogs] = useState<Workout[]>([]);
+  
+  const [nutrientModalVisible, setNutrientModalVisible] = useState(false);
 
   const [loadingRecs, setLoadingRecs] = useState(false);
 
@@ -61,7 +64,7 @@ export default function DashboardScreen() {
           // If the last fetch was a failure (API quota issue), shorten cooldown to 5 min for auto-recovery
           const isRecentFailure = isFailure && recsCache?.timestamp && (Date.now() - recsCache.timestamp < 5 * 60 * 1000);
 
-          if (!isSameDay || (!isSameHash && !isRecent) || (isFailure && !isRecentFailure)) {
+          if (!isSameDay || !isSameHash || (isFailure && !isRecentFailure)) {
             if (isMounted) setLoadingRecs(true);
             const targets = { ...currentUser.daily_targets };
             const recs = await generateDailyRecommendations(logs, workouts, targets, currentUser.goal);
@@ -88,6 +91,14 @@ export default function DashboardScreen() {
       return () => { isMounted = false; };
     }, [])
   );
+
+  React.useEffect(() => {
+    // Timed background updates: At least once every hour
+    const timer = setInterval(() => {
+      refreshDailyScoreData();
+    }, 60 * 60 * 1000); 
+    return () => clearInterval(timer);
+  }, []);
 
   if (!user) {
     return null; // Safety net, index.tsx handles actual redirect
@@ -136,15 +147,48 @@ export default function DashboardScreen() {
     }
   };
 
-  const macrosToDisplay = activeKeys.map(key => ({
-    key,
-    label: nutrientLabelsLoc[key] || key,
-    consumed: getConsumedValue(key),
-    target: (targets as any)[key] || 0,
-    color: '#3b82f6'
-  }));
-
   const todayDateStr = new Date().toISOString().split('T')[0];
+  const scoreExpCache = user.dailyScoreExplanations?.[todayDateStr];
+  let aiStatuses: Record<string, string> = {};
+  if (scoreExpCache) {
+    try {
+      const parsed = JSON.parse(scoreExpCache);
+      aiStatuses = parsed.statuses || {};
+    } catch (e) {}
+  }
+
+  const colorMap: Record<string, string> = {
+    green: '#10b981',
+    yellow: '#f59e0b',
+    red: '#ef4444'
+  };
+
+  const nutrientUnits: Record<string, string> = {
+    calories: '',
+    protein: 'g',
+    carbs: 'g',
+    fat: 'g',
+    fiber: 'g',
+    sodium: 'mg',
+    sugar: 'g'
+  };
+
+  const nutrientLabelsOverride: Record<string, string> = {
+    calories: 'קלוריות'
+  };
+
+  const macrosToDisplay = activeKeys.map(key => {
+    const status = aiStatuses[key] || 'green'; // Default to green if AI doesn't specify
+    return {
+      key,
+      label: nutrientLabelsOverride[key] || nutrientLabelsLoc[key] || key,
+      consumed: getConsumedValue(key),
+      target: (targets as any)[key] || 0,
+      color: colorMap[status] || '#3b82f6',
+      unit: nutrientUnits[key] || ''
+    };
+  });
+
   const scoreBreakdown = user.dailyScoreData?.[todayDateStr] || { totalScore: 0, nutritionScore: 0, workoutBonus: 0, progressExpected: 0, progressActual: 0 };
 
   const getScoreColor = (s: number) => {
@@ -219,7 +263,7 @@ export default function DashboardScreen() {
           </TouchableOpacity>
 
           {/* Macros Summary Card (Now Clickable) */}
-          <TouchableOpacity style={[styles.card, styles.flexCard]} onPress={() => router.push('/nutritional-analysis')}>
+          <TouchableOpacity style={[styles.card, styles.flexCard]} onPress={() => setNutrientModalVisible(true)}>
             <Text style={styles.cardTitle}>ערכים תזונתיים</Text>
 
             {macrosToDisplay.slice(0, 2).map((mac, idx) => {
@@ -229,7 +273,7 @@ export default function DashboardScreen() {
                 <View key={mac.key} style={{ marginBottom: 8 }}>
                   <View style={styles.miniMacroRow}>
                     <Text style={styles.miniMacroLabel}>{mac.label}</Text>
-                    <Text style={styles.miniMacroValue}>{Math.round(mac.consumed)} / {safeTarget}</Text>
+                    <Text style={styles.miniMacroValue}>{Math.round(mac.consumed)}</Text>
                   </View>
                   <View style={styles.progressBarBg}>
                     <View style={[styles.progressBarFill, { width: `${progress}%`, backgroundColor: mac.color }]} />
@@ -265,6 +309,8 @@ export default function DashboardScreen() {
         </TouchableOpacity>
 
       </ScrollView>
+
+      <NutrientModal visible={nutrientModalVisible} onClose={() => setNutrientModalVisible(false)} user={user} meals={foodLogs} />
 
     </SafeAreaView>
   );

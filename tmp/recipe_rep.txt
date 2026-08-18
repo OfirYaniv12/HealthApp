@@ -1,0 +1,21 @@
+export const analyzeRecipe = async (name: string, ingredients: { amount: string; unit: string; name: string }[], instructions: string | null): Promise<RecipeAnalysisResult | null> => {
+    if (!apiKey) return null;
+    if (!checkAndIncrementRateLimits()) return null;
+
+    try {
+        const promptMsg = `Recipe: ${name}`;
+        const result = await ai.models.generateContent({
+            model: 'gemini-3.1-flash-lite-preview',
+            contents: promptMsg,
+            config: { systemInstruction: RECIPE_ANALYSIS_PROMPT, temperature: 0.1, thinkingConfig: { thinkingBudget: 1024 } }
+        });
+        const parsed = JSON.parse((result.text || '{}').replace(/```json|```/g, ''));
+        return { totals: parsed.totals, healthScore: parsed.healthScore, ingredientBreakdown: parsed.ingredientBreakdown };
+    } catch (e: any) { return null; }
+};
+
+export const generateRecipeImage = async (name: string): Promise<string | null> => {
+    if (!apiKey) return null;
+    if (!checkAndIncrementRateLimits()) return null;
+    return `https://image.pollinations.ai/prompt/${encodeURIComponent(name)}`;
+};
