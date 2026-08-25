@@ -76,7 +76,19 @@ const getUserId = async () => {
 
 export const addMeal = async (meal: Omit<Meal, 'id'>) => {
     const user_id = await getUserId();
-    const { data, error } = await supabase.from('meals').insert({ ...meal, user_id }).select().single();
+    
+    const sanitizedMeal = {
+        ...meal,
+        calories: Math.round(Number(meal.calories) || 0),
+        protein: Math.round(Number(meal.protein) || 0),
+        fat: Math.round(Number(meal.fat) || 0),
+        carbs: Math.round(Number(meal.carbs) || 0),
+        fiber: meal.fiber !== undefined ? Math.round(Number(meal.fiber) || 0) : undefined,
+        sodium: meal.sodium !== undefined ? Math.round(Number(meal.sodium) || 0) : undefined,
+        sugar: meal.sugar !== undefined ? Math.round(Number(meal.sugar) || 0) : undefined,
+    };
+
+    const { data, error } = await supabase.from('meals').insert({ ...sanitizedMeal, user_id }).select().single();
     if (error) throw error;
     return data;
 };
