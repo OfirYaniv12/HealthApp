@@ -76,10 +76,25 @@ const withTimeout = async <T>(promise: Promise<T>, ms: number = 15000): Promise<
 };
 
 const FALLBACK_MODELS = [
-    'gemini-2.5-flash',
-    'gemini-2.0-flash',
-    'gemini-2.5-flash-lite'
+    'gemini-3.5-flash',
+    'gemini-3.1-flash-lite',
+    'gemini-3.5-flash-lite'
 ];
+
+
+function extractJson(text: string) {
+    if (!text) return '{}';
+    const jsonMatch = text.match(/\\(?:json)?\s*([\s\S]*?)\s*\\/);
+    if (jsonMatch) {
+        return jsonMatch[1].trim();
+    }
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        return text.substring(firstBrace, lastBrace + 1);
+    }
+    return text;
+}
 
 export const generateContentWithFallback = async (requestBase: any): Promise<any> => {
     for (const model of FALLBACK_MODELS) {
@@ -180,13 +195,7 @@ export const generateNutritionResponse = async (history: { role: 'user' | 'model
         const usedModel = fallbackData.usedModel;
         const responseText = result.text || '';
 
-        let rawJsonStr = responseText.trim();
-        if (rawJsonStr.startsWith('```json')) {
-            rawJsonStr = rawJsonStr.replace(/^```json/, '').replace(/```$/, '').trim();
-        } else if (rawJsonStr.startsWith('```')) {
-            rawJsonStr = rawJsonStr.replace(/^```/, '').replace(/```$/, '').trim();
-        }
-
+        let rawJsonStr = extractJson(responseText);
         try {
             const parsed = JSON.parse(rawJsonStr);
             if (parsed.isMeal) {

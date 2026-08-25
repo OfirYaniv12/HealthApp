@@ -81,7 +81,7 @@ export default function AddMealChatScreen() {
             }
         } catch (e) {
             console.error('Error saving meal', e);
-            Alert.alert('שגיאה', 'לא הצלחנו לשמור את הארוחה.');
+            Alert.alert('שגיאה', 'לא הצלחנו לשמור את הארוחה. ' + ((e as any).message || String(e)));
         }
     };
 
