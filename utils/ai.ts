@@ -76,9 +76,9 @@ const withTimeout = async <T>(promise: Promise<T>, ms: number = 15000): Promise<
 };
 
 const FALLBACK_MODELS = [
-    'gemini-3.5-flash',
     'gemini-3.1-flash-lite',
-    'gemini-3.5-flash-lite'
+    'gemini-3.5-flash-lite',
+    'gemini-3.5-flash'
 ];
 
 
@@ -184,8 +184,7 @@ export const generateNutritionResponse = async (history: { role: 'user' | 'model
 
         const fallbackData = await generateContentWithFallback({
             contents: contents,
-            config: {
-                systemInstruction: SYSTEM_PROMPT,
+            config: { responseMimeType: 'application/json', systemInstruction: SYSTEM_PROMPT,
                 temperature: 0.1,
                 thinkingConfig: { thinkingBudget: 1024 }
             }
@@ -266,7 +265,7 @@ export const generatePersonalizedPlan = async (user: UserData): Promise<{ target
         const userDataMsg = `גיל: ${user.age}\nמין: ${user.gender}\nגובה: ${user.height} ס"מ\nמשקל: ${user.weight} ק"ג\nמטרה: ${user.goal}\nרמת פעילות: ${user.activity_level}\nאימונים בשבוע: ${user.workout_frequency}\nמבנה גוף: ${user.body_type}`;
         const fallbackData = await generateContentWithFallback({
             contents: userDataMsg,
-            config: { systemInstruction: NUTRITIONIST_SYSTEM_PROMPT, temperature: 0.1, thinkingConfig: { thinkingBudget: 2048 } }
+            config: { responseMimeType: 'application/json', systemInstruction: NUTRITIONIST_SYSTEM_PROMPT, temperature: 0.1, thinkingConfig: { thinkingBudget: 2048 } }
         });
         if (fallbackData.limitReached) return null;
         const result = fallbackData.result;
@@ -305,7 +304,7 @@ export const estimateTemplateWorkout = async (user: UserData, templateName: stri
         const promptMsg = `Workout: ${templateName}, Duration: ${durationMinutes} mins`;
         const fallbackData = await generateContentWithFallback({
             contents: promptMsg,
-            config: { systemInstruction: TEMPLATE_WORKOUT_PROMPT, temperature: 0.1, thinkingConfig: { thinkingBudget: 1024 } }
+            config: { responseMimeType: 'application/json', systemInstruction: TEMPLATE_WORKOUT_PROMPT, temperature: 0.1, thinkingConfig: { thinkingBudget: 1024 } }
         });
         if (fallbackData.limitReached) return null;
         const result = fallbackData.result;
@@ -349,8 +348,7 @@ export const generateWorkoutResponse = async (history: { role: 'user' | 'model',
 
     try {
         const fallbackData = await chatWithFallback(history, newMessageText, { 
-            systemInstruction: WORKOUT_SYSTEM_PROMPT, 
-            temperature: 0.1, 
+            responseMimeType: 'application/json', systemInstruction: WORKOUT_SYSTEM_PROMPT, temperature: 0.1, 
             thinkingConfig: { thinkingBudget: 1024 } 
         });
         if (fallbackData.limitReached) return { isWorkout: false, limitReached: true, textResponse: 'הגיע למגבלת השימוש.' };
@@ -458,8 +456,7 @@ Instructions: ${instructions || 'ללא הוראות מיוחדות'}
 
         const fallbackData = await generateContentWithFallback({
             contents: promptMsg,
-            config: { 
-                systemInstruction: RECIPE_ANALYSIS_PROMPT, 
+            config: { responseMimeType: 'application/json', systemInstruction: RECIPE_ANALYSIS_PROMPT, 
                 temperature: 0.1,
                 thinkingConfig: { thinkingBudget: 1024 }
             }
@@ -565,8 +562,7 @@ User Goal: ${userGoal || 'לא צוין'}
 
         const fallbackData = await generateContentWithFallback({
             contents: promptMsg,
-            config: { 
-                systemInstruction: RECOMMENDATIONS_PROMPT,
+            config: { responseMimeType: 'application/json', systemInstruction: RECOMMENDATIONS_PROMPT,
                 temperature: 0.1,
                 thinkingConfig: { thinkingBudget: 2048 } 
             }
