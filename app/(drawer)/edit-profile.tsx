@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+import { supabase } from '@/utils/supabase';
 import { UserData, useUserStore } from '@/store/useUserStore';
 import { generatePersonalizedPlan } from '@/utils/ai';
 import { ActivityLevel, BodyType, GenderType, GoalType, TargetPace, WorkoutFrequency } from '@/utils/calculators';
@@ -30,6 +32,22 @@ export default function EditProfileScreen() {
     const [bodyType, setBodyType] = useState<BodyType | ''>(user?.body_type || '');
     const [targetPace, setTargetPace] = useState<TargetPace | ''>(user?.target_pace || '');
     const [isGenerating, setIsGenerating] = useState(false);
+    const [errorMsg, setErrorMsg] = useState<string>('');
+    const hasHydrated = useUserStore((state: any) => state._hasHydrated);
+    useEffect(() => {
+        if (user) {
+            setFullName(user.full_name || '');
+            setGender(user.gender || '');
+            setAge(user.age?.toString() || '');
+            setHeight(user.height?.toString() || '');
+            setWeight(user.weight?.toString() || '');
+            setGoal(user.goal || '');
+            setActivityLevel(user.activity_level || '');
+            setWorkoutFreq(user.workout_frequency || '');
+            setBodyType(user.body_type || '');
+            setTargetPace(user.target_pace || '');
+        }
+    }, [user, hasHydrated]);
 
     const shouldShowPace = goal === 'ירידה במשקל' || goal === 'עלייה במסת שריר';
 
@@ -108,11 +126,14 @@ export default function EditProfileScreen() {
             } else {
                 throw new Error('AI Generation failed');
             }
-        } catch (e) {
-            setIsGenerating(false);
-            Alert.alert('שגיאה', 'תקלה בתקשורת מול מערכת ה-AI לחישוב מדדים מחדש. אנא נסה שוב.');
-            return;
+        } catch (e) { console.error('AI Error:', e); }
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.id) {
+            await supabase.from('users').upsert({
+                id: session.user.id, full_name: updatedUser.full_name, gender: updatedUser.gender, age: updatedUser.age, height: updatedUser.height, weight: updatedUser.weight, goal: updatedUser.goal, activity_level: updatedUser.activity_level, workout_frequency: updatedUser.workout_frequency, body_type: updatedUser.body_type, target_pace: updatedUser.target_pace || null, daily_targets: updatedUser.daily_targets
+            });
         }
+        setIsGenerating(false);
 
         setUser(updatedUser);
         Alert.alert('בהצלחה', 'הנתונים שלך עודכנו ושמורים במערכת.', [
@@ -353,3 +374,4 @@ const styles = StyleSheet.create({
     },
     submitButtonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' }
 });
+
