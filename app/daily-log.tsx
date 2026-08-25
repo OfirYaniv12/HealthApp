@@ -37,41 +37,27 @@ export default function DailyLogScreen() {
 
     const handleDelete = (id?: number) => {
         if (!id) return;
-        if (Platform.OS === 'web') {
-            if (window.confirm('האם אתה בטוח שברצונך למחוק מנה זו?')) {
-                setMeals(prev => prev.filter(m => m.id !== id));
-                deleteMeal(id).then(() => {
-                    loadLogs();
-                    triggerScoreExplanationUpdate();
-                }).catch(async (e) => {
-                    console.error('Failed to delete meal', e);
-                    window.alert('שגיאה: לא ניתן למחוק את הארוחה.');
-                    await loadLogs();
-                });
-            }
-        } else {
-            Alert.alert('מחיקת ארוחה', 'האם אתה בטוח שברצונך למחוק מנה זו?', [
-                { text: 'ביטול', style: 'cancel' },
-                {
-                    text: 'מחק',
-                    style: 'destructive',
-                    onPress: async () => {
-                        // Instantly update UI for immediate feedback
-                        setMeals(prev => prev.filter(m => m.id !== id));
+        Alert.alert('מחיקת ארוחה', 'האם אתה בטוח שברצונך למחוק מנה זו?', [
+            { text: 'ביטול', style: 'cancel' },
+            {
+                text: 'מחק',
+                style: 'destructive',
+                onPress: async () => {
+                    // Instantly update UI for immediate feedback
+                    setMeals(prev => prev.filter(m => m.id !== id));
 
-                        try {
-                            await deleteMeal(id);
-                            await loadLogs();
-                            triggerScoreExplanationUpdate(); // Sync globally
-                        } catch (e) {
-                            console.error('Failed to delete meal', e);
-                            Alert.alert('שגיאה', 'לא ניתן למחוק את הארוחה.');
-                            await loadLogs(); // Revert on failure
-                        }
+                    try {
+                        await deleteMeal(id);
+                        await loadLogs();
+                        triggerScoreExplanationUpdate(); // Sync globally
+                    } catch (e) {
+                        console.error('Failed to delete meal', e);
+                        Alert.alert('שגיאה', 'לא ניתן למחוק את הארוחה.');
+                        await loadLogs(); // Revert on failure
                     }
                 }
-            ]);
-        }
+            }
+        ]);
     };
 
     const totalCals = meals.reduce((sum, m) => sum + m.calories, 0);

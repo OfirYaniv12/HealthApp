@@ -80,16 +80,10 @@ export default function AddMealChatScreen() {
             if (skipAlert) {
                 router.replace('/');
             } else {
-                if (Platform.OS === 'web') {
-                    if (window.confirm('הארוחה נשמרה בהצלחה! לחץ אישור למעבר ליומן ארוחות, או ביטול כדי להמשיך להתכתב.')) {
-                        router.replace('/daily-log');
-                    }
-                } else {
-                    Alert.alert('עודכן בהצלחה!', 'הארוחה נשמרה ביומן היומי שלך.', [
-                        { text: 'המשך להתכתב', style: 'cancel' },
-                        { text: 'מעבר ליומן ארוחות', onPress: () => router.replace('/daily-log') }
-                    ]);
-                }
+                Alert.alert('נרשם בהצלחה!', 'הארוחה נוספה למעקב היומי שלך.', [
+                    { text: 'הוסף מאכל נוסף', style: 'cancel' },
+                    { text: 'עבור ליומן הארוחות', onPress: () => router.replace('/daily-log') }
+                ]);
             }
         } catch (e) {
             console.error('Error saving meal', e);

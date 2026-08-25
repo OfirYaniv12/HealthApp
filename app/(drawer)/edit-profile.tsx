@@ -65,7 +65,14 @@ export default function EditProfileScreen() {
 
     const handleBack = () => {
         if (hasUnsavedChanges) {
-            if (Platform.OS === 'web') { if (window.confirm('האם אתה בטוח שברצונך לצאת ללא שמירת השינויים?')) { router.push('/(drawer)' as any); } } else { Alert.alert('ביטול שינויים', 'האם אתה בטוח שברצונך לצאת מבלי לשמור את השינויים?', [{ text: 'ביטול', style: 'cancel' }, { text: 'כן, צא', style: 'destructive', onPress: () => router.push('/(drawer)' as any) }]); }
+            Alert.alert(
+                'ביטול שינויים',
+                'האם אתה בטוח שברצונך לבטל את השינויים?',
+                [
+                    { text: 'לא', style: 'cancel' },
+                    { text: 'כן, בטל', style: 'destructive', onPress: () => router.push('/(drawer)' as any) }
+                ]
+            );
         } else {
             router.push('/(drawer)' as any);
         }
@@ -76,12 +83,12 @@ export default function EditProfileScreen() {
 
     const handleSave = async () => {
         if (!fullName || !gender || !age || !height || !weight || !goal || !activityLevel || !workoutFreq || !bodyType) {
-            setErrorMsg('אנא מלאו את כל השדות החובה.');
+            Alert.alert('שגיאה', 'אנא מלא/י את כל השדות החסרים.');
             return;
         }
 
         if (shouldShowPace && !targetPace) {
-            setErrorMsg('אנא בחרו קצב התקדמות ליעד שלך.');
+            Alert.alert('שגיאה', 'אנא בחר/י קצב התקדמות ליעד שלך.');
             return;
         }
 
@@ -90,7 +97,7 @@ export default function EditProfileScreen() {
         const weightNum = Number(weight);
 
         if (isNaN(ageNum) || isNaN(heightNum) || isNaN(weightNum)) {
-            setErrorMsg('גיל, גובה ומשקל חייבים להיות מספרים תקינים.');
+            Alert.alert('קלט לא תקין', 'גיל, גובה ומשקל חייבים להיות מספרים תקינים.');
             return;
         }
 
@@ -129,7 +136,9 @@ export default function EditProfileScreen() {
         setIsGenerating(false);
 
         setUser(updatedUser);
-        if (Platform.OS === 'web') { if (window.confirm('הפרופיל עודכן בהצלחה! לחץ אישור למעבר לדף הבית, או ביטול כדי להמשיך לבצע שינויים.')) { router.push('/(drawer)' as any); } } else { Alert.alert('בהצלחה', 'הפרופיל עודכן בהצלחה.', [{ text: 'הישאר בעמוד', style: 'cancel' }, { text: 'מעבר לדף הבית', onPress: () => router.push('/(drawer)' as any) }]); }
+        Alert.alert('בהצלחה', 'הנתונים שלך עודכנו ושמורים במערכת.', [
+            { text: 'חזרה לראשי', onPress: () => router.push('/(drawer)' as any) }
+        ]);
     };
 
     const renderHebrewOptionButtons = (
@@ -301,7 +310,6 @@ export default function EditProfileScreen() {
                         </View>
                     )}
 
-                    {errorMsg ? <Text style={{ color: '#ef4444', textAlign: 'center', marginBottom: 12, fontSize: 16, fontWeight: 'bold' }}>{errorMsg}</Text> : null}
                     <TouchableOpacity
                         style={[styles.submitButton, isGenerating && { opacity: 0.7 }]}
                         onPress={handleSave}
