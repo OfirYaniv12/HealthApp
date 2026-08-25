@@ -1,10 +1,11 @@
+import { AlertManager as Alert } from '@/components/GlobalAlert';
 import { addWorkout, getWorkoutCategories, getWorkoutTemplates, updateWorkoutTemplateLastPerformed, WorkoutCategory, WorkoutTemplate } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
 import { estimateTemplateWorkout } from '@/utils/ai';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, I18nManager, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, I18nManager, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';;
 
 if (!I18nManager.isRTL) {
     I18nManager.allowRTL(true);

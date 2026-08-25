@@ -9,6 +9,8 @@ import { initDB } from '@/db/database';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 
+import { GlobalAlert } from '@/components/GlobalAlert';
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
 
@@ -32,6 +34,7 @@ export default function RootLayout() {
           <Stack.Screen name="customize-nutrients" options={{ headerShown: false, presentation: 'modal' }} />
           <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
         </Stack>
+        <GlobalAlert />
         <StatusBar style="auto" />
       </ThemeProvider>
     </GestureHandlerRootView>

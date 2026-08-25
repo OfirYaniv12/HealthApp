@@ -1,5 +1,6 @@
+import { AlertManager as Alert } from '@/components/GlobalAlert';
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, I18nManager } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, I18nManager } from 'react-native';;
 import { supabase } from '@/utils/supabase';
 import { useRouter } from 'expo-router';
 import { useUserStore } from '@/store/useUserStore';

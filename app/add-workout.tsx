@@ -1,3 +1,4 @@
+import { AlertManager as Alert } from '@/components/GlobalAlert';
 import { addWorkout } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
 import { useWorkoutChatStore, WorkoutChatMessage as Message } from '@/store/useWorkoutChatStore';
@@ -7,13 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
-import {
-    ActivityIndicator, Alert, I18nManager, Image, KeyboardAvoidingView,
-    Platform, SafeAreaView, ScrollView,
-    StyleSheet,
-    Text, TextInput,
-    TouchableOpacity, View
-} from 'react-native';
+import { ActivityIndicator, I18nManager, Image, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';;
 
 if (!I18nManager.isRTL) {
     I18nManager.allowRTL(true);

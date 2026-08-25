@@ -1,10 +1,11 @@
+import { AlertManager as Alert } from '@/components/GlobalAlert';
 import { Meal, deleteMeal, getLogicalDayMeals } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
 import { getLogicalDayBounds } from '@/utils/calculators';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { Alert, I18nManager, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { I18nManager, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';;
 
 if (!I18nManager.isRTL) {
     I18nManager.allowRTL(true);

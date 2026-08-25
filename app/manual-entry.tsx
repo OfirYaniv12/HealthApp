@@ -1,10 +1,11 @@
+import { AlertManager as Alert } from '@/components/GlobalAlert';
 import { addMeal } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
 import { triggerScoreExplanationUpdate } from '@/utils/scoreUpdater';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Alert, I18nManager, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { I18nManager, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';;
 
 // Force RTL
 if (!I18nManager.isRTL) {

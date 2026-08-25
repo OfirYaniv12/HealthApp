@@ -1,3 +1,4 @@
+import { AlertManager as Alert } from '@/components/GlobalAlert';
 import { addWorkout, addWorkoutCategory, addWorkoutTemplate, deleteWorkoutCategory, deleteWorkoutTemplate, getWorkoutCategories, getWorkoutTemplates, updateWorkoutTemplateExercises, updateWorkoutTemplateLastPerformed, WorkoutCategory, WorkoutTemplate } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
 import { generateWorkoutSummary } from '@/utils/ai';
@@ -7,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { DrawerActions, useNavigation } from '@react-navigation/native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, I18nManager, KeyboardAvoidingView, Modal, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, I18nManager, KeyboardAvoidingView, Modal, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';;
 import WorkoutForm, { Exercise } from '../../components/WorkoutForm';
 
 if (!I18nManager.isRTL) {

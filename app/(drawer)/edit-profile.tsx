@@ -1,3 +1,4 @@
+import { AlertManager as Alert } from '@/components/GlobalAlert';
 import { useEffect } from 'react';
 import { supabase } from '@/utils/supabase';
 import { UserData, useUserStore } from '@/store/useUserStore';
@@ -7,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { DrawerActions, useNavigation } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Alert, I18nManager, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { I18nManager, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';;
 
 // Force RTL layout 
 if (!I18nManager.isRTL) {

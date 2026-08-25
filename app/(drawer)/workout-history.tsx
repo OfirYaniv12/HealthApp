@@ -1,3 +1,4 @@
+import { AlertManager as Alert } from '@/components/GlobalAlert';
 import { Workout, deleteWorkout, getAllWorkouts } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
 import { getLogicalDayBounds } from '@/utils/calculators';
@@ -5,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { DrawerActions, useNavigation } from '@react-navigation/native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { Alert, FlatList, I18nManager, Platform, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { FlatList, I18nManager, Platform, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';;
 
 if (!I18nManager.isRTL) {
     I18nManager.allowRTL(true);

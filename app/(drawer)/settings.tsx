@@ -1,10 +1,11 @@
+import { AlertManager as Alert } from '@/components/GlobalAlert';
 import { clearAllMeals } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
 import { Ionicons } from '@expo/vector-icons';
 import { DrawerActions, useNavigation } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Alert, I18nManager, Platform, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { I18nManager, Platform, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';;
 
 if (!I18nManager.isRTL) {
     I18nManager.allowRTL(true);

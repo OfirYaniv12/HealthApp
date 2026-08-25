@@ -1,10 +1,11 @@
+import { AlertManager as Alert } from '@/components/GlobalAlert';
 import { UserData, useUserStore } from '@/store/useUserStore';
 import { generatePersonalizedPlan } from '@/utils/ai';
 import { supabase } from '@/utils/supabase';
 import { ActivityLevel, BodyType, GenderType, GoalType, TargetPace, WorkoutFrequency } from '@/utils/calculators';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Alert, I18nManager, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { I18nManager, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';;
 
 // Force RTL layout since the app is entirely in Hebrew
 if (!I18nManager.isRTL) {

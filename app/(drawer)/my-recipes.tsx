@@ -1,3 +1,4 @@
+import { AlertManager as Alert } from '@/components/GlobalAlert';
 import { addRecipe, addRecipeCategory, deleteRecipe, getRecipeCategories, getRecipesWithCategories, Recipe, RecipeCategory, updateRecipe, updateRecipeImage } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
 import { analyzeRecipe } from '@/utils/ai';
@@ -7,7 +8,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { DrawerActions, useNavigation } from '@react-navigation/native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, I18nManager, Image, KeyboardAvoidingView, Modal, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, I18nManager, Image, KeyboardAvoidingView, Modal, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';;
 
 if (!I18nManager.isRTL) {
     I18nManager.allowRTL(true);

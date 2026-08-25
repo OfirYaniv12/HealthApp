@@ -1,3 +1,4 @@
+import { AlertManager as Alert } from '@/components/GlobalAlert';
 import { addMeal, getRecipeCategories, getRecipesWithCategories, Recipe, RecipeCategory, updateRecipeLastCooked } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
 import { useChatStore, ChatMessage as Message } from '@/store/useChatStore';
@@ -8,14 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import {
-    ActivityIndicator, Alert, I18nManager, Image, KeyboardAvoidingView,
-    Modal,
-    Platform, SafeAreaView, ScrollView,
-    StyleSheet,
-    Text, TextInput,
-    TouchableOpacity, View
-} from 'react-native';
+import { ActivityIndicator, I18nManager, Image, KeyboardAvoidingView, Modal, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';;
 
 if (!I18nManager.isRTL) {
     I18nManager.allowRTL(true);
