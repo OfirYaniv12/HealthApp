@@ -226,20 +226,33 @@ export const generateNutritionResponse = async (history: { role: 'user' | 'model
 ;
 
 const NUTRITIONIST_SYSTEM_PROMPT = `
-You are the HealthApp Clinical Nutritionist and an elite sports nutritionist, an elite AI specialized in Israeli health, physiology, and precise macro calculations.
+You are the HealthApp Precision Health Coach, an elite AI specialized in clinical sports nutrition and physiological macro calculations.
 Your goal is to generate a comprehensive, highly personalized daily nutritional target profile.
 
-Input User Data:
-The user will provide their Age, Gender, Height, Weight, Activity Level, Workout Frequency, Body Type, and Primary Goal.
+Input User Data provided: Age, Gender, Height, Weight, Activity Level, Workout Frequency, Body Type, and Primary Goal.
 
-You are the HealthApp Precision Health Coach, an elite AI specialized in Israeli health, physiology, and scientific macro calculations. Your goal is to balance scientific accuracy with a friendly, supportive UI.
-
-Task Requirements:
-1. Calculate Total Daily Energy Expenditure (TDEE) precisely using standard formulas (e.g. Mifflin-St Jeor) based on weight/height/age/gender.
-2. Calculate an appropriate Calorie Surplus or Deficit depending on their specific Goal (Weight Loss vs Muscle Gain).
-3. Compute macronutrients dynamically and scientifically based on user profile and goals (e.g. Protein based on activity, carbs/fats balanced).
-4. Provide targets for Fiber, Sodium, and Sugar appropriate for this user.
-5. If the goal is "שילוב מתון" (Moderate Integration / Body Recomposition), prioritize high protein (1.8g-2.2g per kg), set a very slight caloric deficit (200-300 cals), and balance carbs/fats strongly to prioritize fat loss while maintaining energy for workouts.
+Task Requirements & STRICT Scientific Formulas:
+1. Basal Metabolic Rate (BMR): You MUST use the exact Mifflin-St Jeor equation:
+   - Men: (10 × weight in kg) + (6.25 × height in cm) - (5 × age in years) + 5
+   - Women: (10 × weight in kg) + (6.25 × height in cm) - (5 × age in years) - 161
+2. Total Daily Energy Expenditure (TDEE): Multiply BMR by the strict Activity Multiplier based on Workout Frequency:
+   - Sedentary (0 workouts): BMR × 1.2
+   - Light (1-3 workouts): BMR × 1.375
+   - Moderate (4-5 workouts): BMR × 1.55
+   - Heavy (6+ workouts): BMR × 1.725
+3. Target Calories: Modify TDEE based precisely on the Primary Goal:
+   - "ירידה במשקל" (Weight Loss / Fat Loss): Target = TDEE - 500 kcal
+   - "עליה במסת שריר" (Muscle Mass Gain): Target = TDEE + 300 kcal
+   - "שמירה על משקל / חיטוב" (Maintain / Toning): Target = TDEE
+   - "שילוב מתון" (Moderate Recomp - Muscle Gain + Fat Loss): Target = TDEE - 200 kcal. This is a slower progress goal demanding a slight deficit but extremely high protein to build muscle while losing fat.
+4. Macronutrient Splitting:
+   - Protein: 
+     - Weight Loss / Recomp (שילוב מתון): 2.0g to 2.2g per kg of body weight (Crucial for muscle preservation/growth).
+     - Muscle Gain: 1.8g to 2.2g per kg.
+     - Maintenance: 1.6g to 1.8g per kg.
+   - Fat: 0.8g to 1.0g per kg of body weight (for hormonal health).
+   - Carbs: Remainder of Target Calories (Carbs = (Target Calories - (Protein × 4) - (Fat × 9)) / 4).
+5. Micronutrients: Fiber (14g per 1000 kcal), Sodium (<2300mg), Sugar (<50g).
 
 Output Requirement:
 Return ONLY a raw JSON object string. Do not wrap in markdown.
@@ -253,7 +266,7 @@ Return ONLY a raw JSON object string. Do not wrap in markdown.
     "sodium": 2300,
     "sugar": 45
   },
-  "explanation": "הסבר מפורט בעברית על הסיבות לבחירת הערכים הללו בגישה קלינית ומקצועית."
+  "explanation": "BMR calculated via Mifflin-St Jeor. Applied 1.375 multiplier for 3 weekly workouts. Set -200kcal deficit for Moderate Recomposition with 2.2g/kg protein to build muscle while losing fat."
 }
 `;
 
@@ -276,23 +289,27 @@ export const generatePersonalizedPlan = async (user: UserData): Promise<{ target
 ;
 
 const TEMPLATE_WORKOUT_PROMPT = `
-You are the HealthApp Elite AI Coach. Your task is to calculate the estimated calories burned for a specific workout template that the user just performed.
+You are the HealthApp Elite AI Coach. Your task is to calculate the precise estimated calories burned for a specific workout template that the user just performed.
 
-Input Context:
+Input Context provided in the system prompt:
 - User Profile: (Age, Gender, Weight, Height)
 - Workout Name
-- Workout Description (from Template)
-- User Session Notes (if any)
+- Workout Description (from Template - the actual exercises)
+- User Session Notes (if any - e.g. "rested a lot" or "lifted heavy")
 - Duration (in minutes)
 
 Task Requirements:
-Calculate the exact estimated calories burned using MET (Metabolic Equivalent of Task) based on the workout details and the user's weight.
+Calculate the exact estimated calories burned using MET (Metabolic Equivalent of Task).
+Formula: Calories Burned = METs × Weight (kg) × (Duration in minutes / 60)
+1. Read the workout description and notes to determine the precise MET value (e.g., Heavy Weightlifting = 3.0-4.0, vigorous HIIT = 8.0, light jogging = 6.0). 
+2. Adjust the MET down if user notes indicate long rests.
+3. Calculate using the provided exact Weight and Duration.
 
 Output Requirement:
 Return ONLY a strictly formatted JSON object. Do not wrap in markdown blocks like \`\`\`json.
 {
   "calories_burned": 320,
-  "summary": "חישוב מבוסס על MET מוערך של 8 עבור אימון זה במשך 45 דק' למתאמן במשקל 70 ק״ג."
+  "summary": "חישוב בוצע לפי MET של 6.0 עבור 45 דק' למשקל 80 קג מבוסס על אימון כוח ומנוחות בינוניות."
 }
 `;
 
@@ -301,7 +318,11 @@ export const estimateTemplateWorkout = async (user: UserData, templateName: stri
     if (!checkAndIncrementRateLimits()) return null;
 
     try {
-        const promptMsg = `Workout: ${templateName}, Duration: ${durationMinutes} mins`;
+        const promptMsg = `User Stats: ${user.weight}kg, ${user.height}cm, Age ${user.age}, ${user.gender}. 
+Workout Name: ${templateName}
+Duration: ${durationMinutes} mins
+Template Description/Exercises: ${templateDescription || 'None'}
+User Notes: ${userNotes || 'None'}`;
         const fallbackData = await generateContentWithFallback({
             contents: promptMsg,
             config: { responseMimeType: 'application/json', systemInstruction: TEMPLATE_WORKOUT_PROMPT, temperature: 0.1, thinkingConfig: { thinkingBudget: 1024 } }
@@ -343,11 +364,12 @@ ZERO HALLUCINATION: If the user says "התאמנתי" without time, politely rej
 `;
 
 export const generateWorkoutResponse = async (history: { role: 'user' | 'model', parts: { text: string }[] }[], newMessageText: string, userWeightKg: number): Promise<WorkoutPlan> => {
-    if (!apiKey) return { isWorkout: false, textResponse: 'מפתח API חסר.' };
-    if (!checkAndIncrementRateLimits()) return { isWorkout: false, textResponse: 'הגעת למגבלת קצב. המתן מעט.' };
+    if (!apiKey) return { isWorkout: false, textResponse: 'Missing API key.' };
+    if (!checkAndIncrementRateLimits()) return { isWorkout: false, textResponse: 'Rate limit reached.' };
 
     try {
-        const fallbackData = await chatWithFallback(history, newMessageText, { 
+        const enhancedMessageText = `[SYSTEM CONTEXT: The user weighs ${userWeightKg}kg. Use this EXACT weight to calculate MET calories burned = MET * ${userWeightKg} * (duration / 60)].\n\nUser Message: ${newMessageText}`;
+        const fallbackData = await chatWithFallback(history, enhancedMessageText, { 
             responseMimeType: 'application/json', systemInstruction: WORKOUT_SYSTEM_PROMPT, temperature: 0.1, 
             thinkingConfig: { thinkingBudget: 1024 } 
         });
