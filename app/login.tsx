@@ -43,11 +43,9 @@ export default function LoginScreen() {
             .single();
 
         if (userData && !userError) {
-            // Restore Zustand store from Supabase if needed, or rely on local Zustand
-            // For now, just navigate
+            useUserStore.getState().setUser(userData);
             router.replace('/(drawer)' as any);
         } else {
-            // User authenticated but no profile in DB, send to onboarding
             router.replace('/onboarding' as any);
         }
         setLoading(false);

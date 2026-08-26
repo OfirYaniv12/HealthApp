@@ -41,8 +41,17 @@ export default function Index() {
         const checkSession = async () => {
             try {
                 const { data: { session }, error } = await supabase.auth.getSession();
-                if (isMounted) {
-                    setHasSession(!!session && !error);
+                if (session && !error) {
+                    if (isMounted) setHasSession(true);
+                    
+                    if (!useUserStore.getState().user?.full_name) {
+                        const { data: userData } = await supabase.from('users').select('*').eq('id', session.user.id).single();
+                        if (userData && userData.full_name) {
+                            useUserStore.getState().setUser(userData);
+                        }
+                    }
+                } else {
+                    if (isMounted) setHasSession(false);
                 }
             } catch (error) {
                 console.error("Session check error:", error);
