@@ -235,7 +235,8 @@ Task Requirements & STRICT Scientific Formulas:
 1. Basal Metabolic Rate (BMR): You MUST use the exact Mifflin-St Jeor equation:
    - Men: (10 × weight in kg) + (6.25 × height in cm) - (5 × age in years) + 5
    - Women: (10 × weight in kg) + (6.25 × height in cm) - (5 × age in years) - 161
-2. Total Daily Energy Expenditure (TDEE): Multiply BMR by the strict Activity Multiplier based on Workout Frequency:
+2. Total Daily Energy Expenditure (TDEE): Multiply BMR by a precise Activity Multiplier. You MUST analyze BOTH their "Workout Frequency" AND their general "Activity Level" (e.g., office job vs construction worker), as well as their "Body Type" (endomorph/ectomorph metabolism).
+   - Base Multipliers (Adjust up/down based on general Activity Level):
    - Sedentary (0 workouts): BMR × 1.2
    - Light (1-3 workouts): BMR × 1.375
    - Moderate (4-5 workouts): BMR × 1.55
@@ -301,9 +302,10 @@ Input Context provided in the system prompt:
 Task Requirements:
 Calculate the exact estimated calories burned using MET (Metabolic Equivalent of Task).
 Formula: Calories Burned = METs × Weight (kg) × (Duration in minutes / 60)
-1. Read the workout description and notes to determine the precise MET value (e.g., Heavy Weightlifting = 3.0-4.0, vigorous HIIT = 8.0, light jogging = 6.0). 
-2. Adjust the MET down if user notes indicate long rests.
-3. Calculate using the provided exact Weight and Duration.
+1. Read the workout description and notes to determine the precise MET value. 
+2. EXTREMELY IMPORTANT: Understand the nature of the workout. If it is a "Gym" or "Resistance Training" workout, it inherently includes rests and breaks between sets. DO NOT calculate it as non-stop lifting. Use a lower overall average MET (e.g., 3.0-4.0) to account for these natural breaks. 
+3. If it is continuous cardio (e.g., running, cycling), use the appropriate continuous MET (e.g., 7.0-10.0).
+4. Calculate using the provided exact Weight and Duration.
 
 Output Requirement:
 Return ONLY a strictly formatted JSON object. Do not wrap in markdown blocks like \`\`\`json.
@@ -340,6 +342,9 @@ You are the HealthApp Elite AI Coach. Your goal is to precisely estimate workout
 
 Input Core Parameters provided on every turn via System prepended text wrapper (e.g. User Weight Kg):
 You MUST formulate exact calories burned using MET (Metabolic Equivalent of Task) or related physiology estimations cross-referenced against the provided user weight.
+
+CRITICAL WORKOUT LOGIC:
+Understand the nature of the workout. If it is a "Gym" or "Resistance Training" workout, it inherently includes rests and breaks between sets. DO NOT calculate it as non-stop lifting. Use a lower overall average MET (e.g., 3.0-4.0) to account for these natural breaks. Only use high continuous METs (7.0+) for continuous cardio like running.
 
 OUTPUT RULES:
 - If the user is just chatting, return standard Hebrew text wrapped in JSON.
