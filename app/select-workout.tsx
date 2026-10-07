@@ -52,61 +52,61 @@ export default function SelectWorkoutModal() {
         setDurationModalVisible(true);
     };
 
+    const executeLogWorkout = async (durStr: string, template: WorkoutTemplate, customNotes?: string) => {
+        setIsProcessingLog(true);
+        try {
+            const dur = parseInt(durStr) || 30;
+            const aiEstimation = await estimateTemplateWorkout(
+                user!,
+                template.name,
+                template.exercises || template.description,
+                customNotes || null,
+                dur
+            );
+
+            let calBurned = 0;
+            let aiSummary = '';
+
+            if (aiEstimation) {
+                calBurned = aiEstimation.calories_burned;
+                aiSummary = aiEstimation.summary;
+            } else {
+                calBurned = Math.round(8 * (user?.weight || 74) * (dur / 60)); 
+            }
+
+            await addWorkout({
+                name: template.name,
+                duration_minutes: dur,
+                calories_burned: calBurned,
+                exercises: template.exercises,
+                timestamp: new Date().toISOString(),
+                
+            });
+
+            await updateWorkoutTemplateLastPerformed(template.id!, new Date().toISOString());
+
+            setDurationModalVisible(false);
+            setDurationInput('');
+            setNotesInput('');
+            
+            setTimeout(() => {
+                router.replace('/(drawer)/workout-history');
+            }, 100);
+            
+        } catch (e) {
+            Alert.alert('שגיאה', 'ארעה שגיאה בעת רישום האימון.');
+        } finally {
+            setIsProcessingLog(false);
+        }
+    };
+
     const handleConfirmLog = async () => {
         if (!durationInput || isNaN(Number(durationInput)) || Number(durationInput) <= 0) {
             Alert.alert('שגיאה', 'יש להזין משך זמן תקין בדקות.');
             return;
         }
         if (!user || !selectedTemplateForLog) return;
-
-        setIsProcessingLog(true);
-        try {
-            const duration = Number(durationInput);
-            const userNotesStr = notesInput.trim() || null;
-
-            const aiEstimation = await estimateTemplateWorkout(
-                user,
-                selectedTemplateForLog.name,
-                selectedTemplateForLog.description || null,
-                userNotesStr,
-                duration
-            );
-
-            const calories = aiEstimation?.calories_burned || 0;
-            const aiSummary = aiEstimation?.summary || 'חישוב מוערך על בסיס משך האימון ופרופיל המשתמש.';
-
-            let finalDescription = '';
-            if (selectedTemplateForLog.description) {
-                finalDescription += selectedTemplateForLog.description;
-            }
-            if (userNotesStr) {
-                finalDescription += (finalDescription ? '\n\n' : '') + userNotesStr;
-            }
-
-            const dateIso = new Date().toISOString();
-            await addWorkout({
-                name: selectedTemplateForLog.name,
-                duration_minutes: duration,
-                calories_burned: calories,
-                description: finalDescription || undefined,
-                timestamp: dateIso
-            });
-
-            if (selectedTemplateForLog.id) {
-                await updateWorkoutTemplateLastPerformed(selectedTemplateForLog.id, dateIso);
-            }
-
-            setDurationModalVisible(false);
-            router.dismissAll();
-            setTimeout(() => {
-                router.replace('/(drawer)/workout-history');
-            }, 100);
-        } catch (e) {
-            console.error(e);
-            Alert.alert('שגיאה', 'לא ניתן לשמור את האימון כעת.');
-        } finally {
-            setIsProcessingLog(false);
-        }
+        await executeLogWorkout(durationInput, selectedTemplateForLog, notesInput.trim());
     };
 
     const filteredTemplates = templates.filter(t => {

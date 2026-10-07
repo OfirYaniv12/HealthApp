@@ -260,15 +260,7 @@ export default function MyRecipesScreen() {
                     loadData();
                 }
             });
-            options.push({
-                text: 'ייצר ב-AI', onPress: async () => {
-                    if (recipe) {
-                        const url = 'https://image.pollinations.ai/prompt/' + encodeURIComponent(recipe.name + ' food photography high quality');
-                        await updateRecipeImage(id, url);
-                        loadData();
-                    }
-                }
-            });
+
         }
 
         options.push({ text: 'מצלמה', onPress: () => captureOrPickImage(id, true) });

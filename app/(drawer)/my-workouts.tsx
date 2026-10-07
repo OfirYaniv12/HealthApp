@@ -73,7 +73,7 @@ export default function MyWorkoutsScreen() {
     };
 
     // Template Actions
-    const handleCreateTemplate = async (name: string, categoryId: number, flattenedExercises: Exercise[]) => {
+    const handleCreateTemplate = async (name: string, categoryId: number, flattenedExercises: Exercise[], descriptionStr?: string | null) => {
         setIsGenerating(true);
         try {
             const summary = await generateWorkoutSummary(flattenedExercises);
@@ -83,7 +83,7 @@ export default function MyWorkoutsScreen() {
                 category_id: categoryId,
                 exercises: exercisesJson,
                 summary: summary || 'אימון שהוקם על ידי המשתמש',
-                description: null
+                description: descriptionStr || null
             });
             setTemplateModalVisible(false);
             loadData();
