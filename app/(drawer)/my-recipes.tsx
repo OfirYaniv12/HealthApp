@@ -97,7 +97,7 @@ export default function MyRecipesScreen() {
             : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8, base64: true });
 
         if (!result.canceled && result.assets && result.assets.length > 0) {
-            setSelectedImageUri(result.assets[0].base64 ? data:image/jpeg;base64,\ : result.assets[0].uri);
+            setSelectedImageUri(result.assets[0].base64 ? `data:image/jpeg;base64,${result.assets[0].base64}` : result.assets[0].uri);
         }
     };
 
@@ -295,7 +295,7 @@ export default function MyRecipesScreen() {
             : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8, base64: true });
 
         if (!result.canceled && result.assets && result.assets.length > 0) {
-            await updateRecipeImage(id, result.assets[0].base64 ? data:image/jpeg;base64,\ : result.assets[0].uri);
+            await updateRecipeImage(id, result.assets[0].base64 ? `data:image/jpeg;base64,${result.assets[0].base64}` : result.assets[0].uri);
             loadData();
         }
     };
