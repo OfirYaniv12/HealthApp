@@ -1,4 +1,6 @@
-import { AlertManager as Alert } from '@/components/GlobalAlert';
+﻿const fs = require('fs');
+
+const code = `import { AlertManager as Alert } from '@/components/GlobalAlert';
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, I18nManager } from 'react-native';
 import { supabase } from '@/utils/supabase';
@@ -131,3 +133,6 @@ const styles = StyleSheet.create({
     button: { backgroundColor: '#3b82f6', padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 16 },
     buttonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' }
 });
+`;
+
+fs.writeFileSync('app/login.tsx', code, 'utf-8');

@@ -359,6 +359,10 @@ const styles = StyleSheet.create({
     modalContentLarge: { backgroundColor: '#f1f5f9', borderRadius: 24, flex: 1, marginTop: 40, marginBottom: 20 },
     modalHeader: { flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center', padding: 20, backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
     modalTitle: { fontSize: 22, fontWeight: 'bold', color: '#1e293b', textAlign: 'right' },
+    tabBtn: { flex: 1, flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, borderRadius: 6, gap: 6 },
+    tabBtnActive: { backgroundColor: '#3b82f6' },
+    tabBtnText: { color: '#64748b', fontSize: 14, fontWeight: '600' },
+    tabBtnTextActive: { color: '#fff' },
     
     sectionCard: { backgroundColor: '#fff', padding: 20, marginBottom: 16 },
     inputLabel: { fontSize: 13, fontWeight: 'bold', color: '#64748b', marginBottom: 8, textAlign: 'right', textTransform: 'uppercase' },
