@@ -82,11 +82,11 @@ export const triggerScoreExplanationUpdate = async () => {
 
         // Generate Explanation — returns null on any API/quota error
         const explanation = await generateDailyScoreExplanation(
-            score,
-            consumptionStr,
-            isWorkoutLogged,
-            user.goal,
-            loggedFoodsStr,
+            score, 
+            consumptionStr, 
+            isWorkoutLogged, 
+            (user.goal || '') + " | Workout Frequency: " + (user.workout_frequency || 'Unknown'), 
+            loggedFoodsStr, 
             pastContextStr
         );
 

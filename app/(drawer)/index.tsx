@@ -79,7 +79,7 @@ export default function DashboardScreen() {
             const pastMealsTotal = (pastMeals || []).reduce((sum, m) => sum + (m.calories || 0), 0);
             const pastContextStr = `Past 3 days logged ${(pastMeals || []).length} meals (approx ${Math.round(pastMealsTotal)} kcal total) and ${(pastWorkouts || []).length} workouts.`;
 
-            const recs = await generateDailyRecommendations(logs, workouts, targets, currentUser.goal, pastContextStr);
+            const recs = await generateDailyRecommendations(logs, workouts, targets, (currentUser.goal || '') + " | Workout Frequency: " + (currentUser.workout_frequency || 'Unknown'), pastContextStr);
             if (isMounted) {
               if (recs) {
                 useUserStore.getState().setDailyRecommendations(todayDateStr, newHash, Date.now(), recs);

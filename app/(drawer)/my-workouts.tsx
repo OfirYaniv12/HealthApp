@@ -100,13 +100,11 @@ export default function MyWorkoutsScreen() {
             { text: 'מחק', style: 'destructive', onPress: async () => { await deleteWorkoutTemplate(id); loadData(); } }
         ]);
     };
-    const handleLogWorkout = async () => {
-        if (!logDuration || !logTemplate) { Alert.alert('שגיאה', 'הזן משך אימון'); return; }
-        
+    const executeLogWorkout = async (durStr: string, template: WorkoutTemplate) => {
         setIsGenerating(true);
         try {
-            const dur = parseInt(logDuration);
-            const exercisesJson = logTemplate.exercises || '[]';
+            const dur = parseInt(durStr);
+            const exercisesJson = template.exercises || '[]';
             
             const metrics = {
                 weight: user?.weight || 74,
@@ -124,19 +122,18 @@ export default function MyWorkoutsScreen() {
                 calBurned = dynamicResult.calories_burned;
                 aiSummary = dynamicResult.summary;
             } else {
-                // Fallback basic estimation if AI fails
                 calBurned = Math.round(8 * metrics.weight * (dur / 60)); 
             }
 
             await addWorkout({
-                name: logTemplate.name,
+                name: template.name,
                 duration_minutes: dur,
                 calories_burned: calBurned,
-                exercises: logTemplate.exercises,
+                exercises: template.exercises,
                 timestamp: new Date().toISOString()
             });
 
-            await updateWorkoutTemplateLastPerformed(logTemplate.id!, new Date().toISOString());
+            await updateWorkoutTemplateLastPerformed(template.id!, new Date().toISOString());
             triggerScoreExplanationUpdate();
 
             setLogModalVisible(false);
@@ -144,15 +141,20 @@ export default function MyWorkoutsScreen() {
             loadData();
 
             if (aiSummary) {
-                Alert.alert('האימון נרשם בהצלחה!', `נשרפו כ-${calBurned} קלוריות.\n\n${aiSummary}`);
+                Alert.alert('אימון נרשם בהצלחה!', `שרפת כ-${calBurned} קלוריות.\n\n${aiSummary}`);
             } else {
-                Alert.alert('נרשם בהצלחה!', `נשרפו כ-${calBurned} קלוריות באימון.`);
+                Alert.alert('אימון נרשם בהצלחה!', `שרפת כ-${calBurned} קלוריות.`);
             }
         } catch (e) {
-            Alert.alert('שגיאה', 'לא הצלחנו ליישם את ניתוח האימון.');
+            Alert.alert('שגיאה', 'אירעה שגיאה. נסה שוב.');
         } finally {
             setIsGenerating(false);
         }
+    };
+
+    const handleLogWorkout = async () => {
+        if (!logDuration || !logTemplate) { Alert.alert('שגיאה', 'הזן משך אימון'); return; }
+        await executeLogWorkout(logDuration, logTemplate);
     };
 
     const toggleFilters = () => {
@@ -200,7 +202,26 @@ export default function MyWorkoutsScreen() {
                         )}
 
                         <View style={{ flexDirection: 'row-reverse', gap: 12, marginTop: 16 }}>
-                            <TouchableOpacity style={[styles.actionBtnPrimary, { flex: 1, justifyContent: 'center' }]} onPress={() => { setLogTemplate(item); setLogModalVisible(true); }}>
+                            <TouchableOpacity style={[styles.actionBtnPrimary, { flex: 1, justifyContent: 'center' }]} onPress={() => { 
+                                let reqTime = true;
+                                let preDur = '';
+                                try {
+                                    if (item.description && item.description.startsWith('{')) {
+                                        const md = JSON.parse(item.description);
+                                        if (md.requireTimeOnLog === false) {
+                                            reqTime = false;
+                                            preDur = md.presetDuration;
+                                        }
+                                    }
+                                } catch(e){}
+
+                                if (!reqTime) {
+                                    executeLogWorkout(preDur || '30', item);
+                                } else {
+                                    setLogTemplate(item); 
+                                    setLogModalVisible(true); 
+                                }
+                            }}>
                                 <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
                                 <Text style={styles.actionBtnTextPrimary}>רשום אימון</Text>
                             </TouchableOpacity>
