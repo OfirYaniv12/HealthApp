@@ -340,7 +340,7 @@ export default function WorkoutForm({ visible, categories, isGenerating, onClose
                             </View>
                         ))}
                         
-                        {workoutType === 'strength' && (
+                        {workoutType === 'gym' && (
                             <TouchableOpacity style={[styles.actionBtnSecondary, { alignSelf: 'center', marginBottom: 24, paddingVertical: 12, paddingHorizontal: 20 }]} onPress={handleAddBlock}>
                                 <Text style={styles.actionBtnTextSecondary}>+ הוסף קבוצת שרירים נוספת</Text>
                             </TouchableOpacity>
