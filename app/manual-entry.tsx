@@ -96,43 +96,43 @@ export default function ManualEntryScreen() {
                     <View style={styles.row}>
                         <View style={[styles.inputGroup, { flex: 1 }]}>
                             <Text style={styles.label}>קלוריות</Text>
-                            <TextInput style={styles.textInput} value={calories} onChangeText={setCalories} keyboardType="numeric" placeholder="0" placeholderTextColor="#94a3b8" textAlign="right" />
+                            <TextInput style={styles.textInput} value={calories} onChangeText={setCalories} keyboardType="decimal-pad" placeholder="0" placeholderTextColor="#94a3b8" textAlign="right" />
                         </View>
                         <View style={[styles.inputGroup, { flex: 1 }]}>
                             <Text style={styles.label}>חלבון (גרם)</Text>
-                            <TextInput style={styles.textInput} value={protein} onChangeText={setProtein} keyboardType="numeric" placeholder="0" placeholderTextColor="#94a3b8" textAlign="right" />
+                            <TextInput style={styles.textInput} value={protein} onChangeText={setProtein} keyboardType="decimal-pad" placeholder="0" placeholderTextColor="#94a3b8" textAlign="right" />
                         </View>
                     </View>
 
                     <View style={styles.row}>
                         <View style={[styles.inputGroup, { flex: 1 }]}>
                             <Text style={styles.label}>פחמימות (גרם)</Text>
-                            <TextInput style={styles.textInput} value={carbs} onChangeText={setCarbs} keyboardType="numeric" placeholder="0" placeholderTextColor="#94a3b8" textAlign="right" />
+                            <TextInput style={styles.textInput} value={carbs} onChangeText={setCarbs} keyboardType="decimal-pad" placeholder="0" placeholderTextColor="#94a3b8" textAlign="right" />
                         </View>
                         <View style={[styles.inputGroup, { flex: 1 }]}>
                             <Text style={styles.label}>שומן (גרם)</Text>
-                            <TextInput style={styles.textInput} value={fat} onChangeText={setFat} keyboardType="numeric" placeholder="0" placeholderTextColor="#94a3b8" textAlign="right" />
+                            <TextInput style={styles.textInput} value={fat} onChangeText={setFat} keyboardType="decimal-pad" placeholder="0" placeholderTextColor="#94a3b8" textAlign="right" />
                         </View>
                     </View>
 
                     {tracked.fiber !== false && (
                         <View style={styles.inputGroup}>
                             <Text style={styles.label}>סיבים תזונתיים (גרם)</Text>
-                            <TextInput style={styles.textInput} value={fiber} onChangeText={setFiber} keyboardType="numeric" placeholder="0" placeholderTextColor="#94a3b8" textAlign="right" />
+                            <TextInput style={styles.textInput} value={fiber} onChangeText={setFiber} keyboardType="decimal-pad" placeholder="0" placeholderTextColor="#94a3b8" textAlign="right" />
                         </View>
                     )}
 
                     {tracked.sodium !== false && (
                         <View style={styles.inputGroup}>
                             <Text style={styles.label}>נתרן (מ"ג)</Text>
-                            <TextInput style={styles.textInput} value={sodium} onChangeText={setSodium} keyboardType="numeric" placeholder="0" placeholderTextColor="#94a3b8" textAlign="right" />
+                            <TextInput style={styles.textInput} value={sodium} onChangeText={setSodium} keyboardType="decimal-pad" placeholder="0" placeholderTextColor="#94a3b8" textAlign="right" />
                         </View>
                     )}
 
                     {tracked.sugar !== false && (
                         <View style={styles.inputGroup}>
                             <Text style={styles.label}>סוכר (גרם)</Text>
-                            <TextInput style={styles.textInput} value={sugar} onChangeText={setSugar} keyboardType="numeric" placeholder="0" placeholderTextColor="#94a3b8" textAlign="right" />
+                            <TextInput style={styles.textInput} value={sugar} onChangeText={setSugar} keyboardType="decimal-pad" placeholder="0" placeholderTextColor="#94a3b8" textAlign="right" />
                         </View>
                     )}
 

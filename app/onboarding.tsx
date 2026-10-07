@@ -222,7 +222,7 @@ export default function OnboardingScreen() {
                     <Text style={styles.label}>גיל</Text>
                     <TextInput
                         style={styles.textInput}
-                        keyboardType="numeric"
+                        keyboardType="decimal-pad"
                         placeholder="לדוגמה 30"
                         value={age}
                         onChangeText={setAge}
@@ -234,7 +234,7 @@ export default function OnboardingScreen() {
                     <Text style={styles.label}>גובה (ס"מ)</Text>
                     <TextInput
                         style={styles.textInput}
-                        keyboardType="numeric"
+                        keyboardType="decimal-pad"
                         placeholder="לדוגמה 175"
                         value={height}
                         onChangeText={setHeight}
@@ -246,7 +246,7 @@ export default function OnboardingScreen() {
                     <Text style={styles.label}>משקל (ק"ג)</Text>
                     <TextInput
                         style={styles.textInput}
-                        keyboardType="numeric"
+                        keyboardType="decimal-pad"
                         placeholder="לדוגמה 70"
                         value={weight}
                         onChangeText={setWeight}

@@ -180,8 +180,8 @@ export default function WorkoutTrackingScreen() {
                                                 <View style={{ gap: 6, marginBottom: 8 }}>
                                                     <TextInput style={[styles.inlineInput, { fontSize: 18, fontWeight: 'bold' }]} placeholder="שם תרגיל" value={ex.name} onChangeText={(t) => handleUpdateField(ex.originalIndex, 'name', t)} />
                                                     <View style={{ flexDirection: 'row-reverse', gap: 6 }}>
-                                                        <TextInput style={[styles.inlineInput, { flex: 1 }]} placeholder="סטים" keyboardType="numeric" value={ex.sets} onChangeText={(t) => handleUpdateField(ex.originalIndex, 'sets', t)} />
-                                                        <TextInput style={[styles.inlineInput, { flex: 1 }]} placeholder="חזרות" keyboardType="numeric" value={ex.reps} onChangeText={(t) => handleUpdateField(ex.originalIndex, 'reps', t)} />
+                                                        <TextInput style={[styles.inlineInput, { flex: 1 }]} placeholder="סטים" keyboardType="decimal-pad" value={ex.sets} onChangeText={(t) => handleUpdateField(ex.originalIndex, 'sets', t)} />
+                                                        <TextInput style={[styles.inlineInput, { flex: 1 }]} placeholder="חזרות" keyboardType="decimal-pad" value={ex.reps} onChangeText={(t) => handleUpdateField(ex.originalIndex, 'reps', t)} />
                                                     </View>
                                                 </View>
                                             ) : (

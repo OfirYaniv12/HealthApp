@@ -224,7 +224,7 @@ export default function SelectWorkoutModal() {
                             <TextInput
                                 style={[styles.modalInput, { width: 100, textAlign: 'center', fontSize: 20, marginBottom: 0 }]}
                                 placeholder="0"
-                                keyboardType="numeric"
+                                keyboardType="decimal-pad"
                                 value={durationInput}
                                 onChangeText={setDurationInput}
                                 autoFocus

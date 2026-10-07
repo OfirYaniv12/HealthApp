@@ -41,6 +41,8 @@ export default function WorkoutForm({ visible, categories, isGenerating, onClose
     const [blocks, setBlocks] = useState<MuscleGroupBlock[]>([
         { id: Date.now().toString(), muscleGroup: '', exercises: [] }
     ]);
+    const [workoutType, setWorkoutType] = useState<'strength' | 'cardio'>('strength');
+    const [cardioDesc, setCardioDesc] = useState('');
 
     const handleAddBlock = () => {
         setBlocks(prev => [...prev, { id: Date.now().toString(), muscleGroup: '', exercises: [] }]);
@@ -132,10 +134,21 @@ export default function WorkoutForm({ visible, categories, isGenerating, onClose
                             <Text style={styles.inputLabel}>שם האימון</Text>
                             <TextInput 
                                 style={[styles.modalInput, { fontSize: 18, fontWeight: 'bold' }]} 
-                                placeholder="למשל: אימון מתח וגב" 
+                                placeholder="למשל: אימון כוח או ריצת בוקר" 
                                 value={templateName} 
                                 onChangeText={setTemplateName} 
                             />
+
+                            <View style={{ flexDirection: 'row-reverse', marginTop: 12, marginBottom: 8, backgroundColor: '#f1f5f9', borderRadius: 8, padding: 4 }}>
+                                <TouchableOpacity style={[styles.tabBtn, workoutType === 'strength' && styles.tabBtnActive]} onPress={() => setWorkoutType('strength')}>
+                                    <Ionicons name="barbell-outline" size={16} color={workoutType === 'strength' ? '#fff' : '#64748b'} />
+                                    <Text style={[styles.tabBtnText, workoutType === 'strength' && styles.tabBtnTextActive]}> כוח</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={[styles.tabBtn, workoutType === 'cardio' && styles.tabBtnActive]} onPress={() => setWorkoutType('cardio')}>
+                                    <Ionicons name="walk-outline" size={16} color={workoutType === 'cardio' ? '#fff' : '#64748b'} />
+                                    <Text style={[styles.tabBtnText, workoutType === 'cardio' && styles.tabBtnTextActive]}> אירובי</Text>
+                                </TouchableOpacity>
+                            </View>
 
                             <Text style={[styles.inputLabel, { marginTop: 8 }]}>קטגוריה</Text>
                             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 8 }}>
@@ -153,7 +166,18 @@ export default function WorkoutForm({ visible, categories, isGenerating, onClose
 
                         <Text style={styles.sectionHeaderTitle}>תוכנית התרגילים</Text>
 
-                        {blocks.map((block, blockIndex) => (
+                        {workoutType === 'cardio' ? (
+                            <View style={styles.blockCard}>
+                                <Text style={styles.inputLabel}>תיאור האימון האירובי</Text>
+                                <TextInput 
+                                    style={[styles.modalInput, { height: 100, textAlignVertical: 'top' }]} 
+                                    placeholder="לדוגמה: ריצת 5 קילומטר ב-25 דקות קצב בינוני."
+                                    multiline 
+                                    value={cardioDesc} 
+                                    onChangeText={setCardioDesc} 
+                                />
+                            </View>
+                        ) : blocks.map((block, blockIndex) => (
                             <View key={block.id} style={styles.blockCard}>
                                 {/* Block Header */}
                                 <View style={styles.blockHeader}>
@@ -219,10 +243,12 @@ export default function WorkoutForm({ visible, categories, isGenerating, onClose
                                 </TouchableOpacity>
                             </View>
                         ))}
-
-                        <TouchableOpacity style={[styles.actionBtnSecondary, { alignSelf: 'center', marginBottom: 24, paddingVertical: 12, paddingHorizontal: 20 }]} onPress={handleAddBlock}>
-                            <Text style={styles.actionBtnTextSecondary}>+ הוסף קבוצת שרירים נוספת</Text>
-                        </TouchableOpacity>
+                        
+                        {workoutType === 'strength' && (
+                            <TouchableOpacity style={[styles.actionBtnSecondary, { alignSelf: 'center', marginBottom: 24, paddingVertical: 12, paddingHorizontal: 20 }]} onPress={handleAddBlock}>
+                                <Text style={styles.actionBtnTextSecondary}>+ הוסף קבוצת שרירים נוספת</Text>
+                            </TouchableOpacity>
+                        )}
 
                         <TouchableOpacity style={styles.fullSubmitBtn} onPress={handleSubmit} disabled={isGenerating}>
                             {isGenerating ? <ActivityIndicator color="#fff" /> : <Text style={styles.fullSubmitText}>סכם באמצעות AI ושמור אימון</Text>}

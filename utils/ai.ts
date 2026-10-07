@@ -140,6 +140,13 @@ YOUR COGNITIVE PROCESS:
 3. Maintain Context: The user might be correcting a previous meal ("Actually, add an egg") or providing a new meal.
 4. Use your deep knowledge of nutritional values (USDA + Israeli market equivalents) to estimate macros.
 
+SPECIAL INSTRUCTIONS FOR PORTIONS AND SAVED RECIPES:
+- If the user explicitly states they ate a fraction or percentage (e.g., '3/4', 'חצי', '70%') of a known saved recipe, you MUST strictly apply that exact mathematical multiplier to the recipe's total macros. DO NOT invent or hallucinate new values.
+
+SPECIAL INSTRUCTIONS FOR OCR AND IMAGES:
+- If the user uploads an image containing text (like a delivery menu from Wolt, or a physical nutritional label), you MUST activate your OCR capabilities. Meticulously read and extract all written text, ingredients, numbers, and weights to calculate the absolute most precise macros possible.
+
+
 OUTPUT RULES:
 - If the user is just chatting or providing feedback that does NOT require logging a specific food, respond with standard text in Hebrew.
 - **CRITICAL**: If the user's intent is to log a meal, you MUST output ONLY a pure JSON object representing the meal. DO NOT wrap the JSON in markdown blocks like \`\`\`json. The JSON MUST follow this exact schema:
@@ -512,39 +519,38 @@ Instructions: ${instructions || 'ללא הוראות מיוחדות'}
 };
 
 const SCORE_EXPLANATION_PROMPT = `
-You are a friendly, knowledgeable health coach. Explain the user's daily health score based on their consumption data, logged items, and the CURRENT TIME OF DAY in 100% HEBREW.
+You are a highly observant, strict, but fair personal health coach. Explain the user's daily health score based on their consumption data, logged items, past days context, and the CURRENT TIME OF DAY in 100% HEBREW.
 
 STRICT FORMAT RULES (CRITICAL):
 - ABSOLUTELY 100% HEBREW ONLY. DO NOT USE ANY ENGLISH WORDS OR SYMBOLS (no 'protein', no variables).
 - DO NOT RETURN JSON. Provide the explanation as a clean, multi-line Hebrew text.
 - STRUCTURE AS A LIST: Provide the explanation text as a list of clear, summarized bullet lines separated by the newline character.
 - NO MARKDOWN SYMBOLS: Do NOT use any asterisks (*), hashtags (#), or bold tags. Clean text only.
-- CONCISE TONE: Use 2-4 summarized bullet lines using warm emojis (e.g. 👏, 🌾, ⚠️). 
+- TONE: Act as a REAL, STRICT coach. If the user eats fast food, misses targets, or skips workouts (especially if the past days show a bad streak), CALL THEM OUT explicitly and firmly. Balance praise for good habits with direct, constructive criticism for bad ones. Use emojis (e.g. 👏, 🌾, ⚠️, 🍔, 🛑).
 
 CONTENT & PERSONALIZATION RULES:
-1. ANALYZE SPECIFIC MEALS: Do not just list general macro statues. Look at the "Logged Foods" list provided in context.
-2. PRAISE/WARN: Praise fully specific meals with excellent nutrient profiles (e.g., loaded with fiber/protein). Call out specific meals that impacted the score significantly positively or negatively.
-3. LOG VARIETY: Mention or comment on the variety of foods eaten today if notable.
-4. TIME SENSITIVITY: Evaluate totals based on the Current Time provided. (e.g., eating 80% targets by 9:00 AM vs 9:00 PM).
-
-Example Output:
-- 👏 ארוחת הבוקר (יוגורט שיבולת שועל) הייתה בחירה מדהימה, שעזרה לך להישאר שבע!
-- 🌾 צריכת הסיבים שלך מצוינת היום בזכות הירקות שרשמת
-- ⚠️ שים לב לתוספת הסוכר בקפה
+1. MULTI-DAY CONTEXT: Consider the 'Past 3 Days' context. If they have been resting too much, tell them to train. If they overate yesterday, advise a lighter day today.
+2. ANALYZE SPECIFIC MEALS: Call out specific logged foods (e.g., praise a salad, criticize a burger).
+3. TIME SENSITIVITY: Evaluate totals based on the Current Time provided. (e.g., eating 80% targets by 9:00 AM vs 9:00 PM).
 `;
 
 const RECOMMENDATIONS_PROMPT = `
-You are the HealthApp Advisor. Based on the user's daily consumption, workouts, and goals, generate actionable recommendations.
+You are the HealthApp Advisor, acting as a STRICT, no-nonsense health coach. Based on the user's daily consumption, workouts, goals, and PAST DAYS context, generate actionable recommendations.
+
+CRITICAL TONE RULES:
+- If the user is eating junk food, missing workouts, or slacking off according to the past days context, CALL THEM OUT. Do not be overly positive if they are failing their goals. Be firm, direct, and constructive.
+- If they are doing great, praise them.
+- Always respond in 100% HEBREW.
 
 Output Requirement:
-Return ONLY a strictly formatted JSON object. Do not wrap in markdown blocks like \`\`\`json.
+Return ONLY a strictly formatted JSON object. Do not wrap in markdown blocks like ```json.
 {
-  "short": ["טיפ 1 קצר", "טיפ 2 קצר"],
-  "full": "הסבר מפורט ומובנה היטב בעברית. השתמש בכותרות מודגשות חמודות עם אימוג'ים (לדוגמה: 🍳 תזונה, 🏃 פעילות). הסבר בצורה ברורה מאוד כיצד על המשתמש להמשיך את היום כדי להגיע למטרותיו."
+  "short": ["טיפ 1 קצר ונוקב", "טיפ 2 קצר ונוקב"],
+  "full": "הסבר מפורט ומובנה היטב בעברית, המשקף ביקורת בונה (או שבחים) בהתבסס על ההתנהגות. השתמש בכותרות עם אימוג'ים (לדוגמה: 🍳 תזונה, 🏃 פעילות)."
 }
 `;
 
-export const generateDailyScoreExplanation = async (score: any, consumptionStr: string, isWorkoutLogged: boolean, userGoal?: string, loggedFoodsStr?: string): Promise<string | null> => {
+export const generateDailyScoreExplanation = async (score: any, consumptionStr: string, isWorkoutLogged: boolean, userGoal?: string, loggedFoodsStr?: string, pastDaysContextStr?: string): Promise<string | null> => {
     if (!apiKey) return null;
     if (!checkAndIncrementRateLimits()) return null;
     try {
@@ -558,6 +564,7 @@ Goal: ${userGoal || 'Not set'}
 Consumption: ${consumptionStr}
 Workout Logged Today: ${isWorkoutLogged ? 'Yes' : 'No'}
 Logged Foods: ${loggedFoodsStr || 'None'}
+Past 3 Days Context: ${pastDaysContextStr || 'No past context available.'}
 `;
 
         const fallbackData = await generateContentWithFallback({
@@ -576,7 +583,7 @@ Logged Foods: ${loggedFoodsStr || 'None'}
     } catch (e: any) { return null; }
 };;
 
-export const generateDailyRecommendations = async (meals: Meal[], workouts: Workout[], targets: any, userGoal?: string): Promise<{ short: string[], full: string } | null> => {
+export const generateDailyRecommendations = async (meals: Meal[], workouts: Workout[], targets: any, userGoal?: string, pastDaysContextStr?: string): Promise<{ short: string[], full: string } | null> => {
     if (!apiKey) return null;
     if (!checkAndIncrementRateLimits()) return null;
     try {
@@ -585,6 +592,7 @@ Meals Logged: ${JSON.stringify(meals)}
 Workouts Logged: ${JSON.stringify(workouts)}
 Targets: ${JSON.stringify(targets)}
 User Goal: ${userGoal || 'לא צוין'}
+Past 3 Days Context: ${pastDaysContextStr || 'No past context available.'}
 `;
 
         const fallbackData = await generateContentWithFallback({

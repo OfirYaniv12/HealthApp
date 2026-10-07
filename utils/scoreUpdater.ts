@@ -68,13 +68,26 @@ export const triggerScoreExplanationUpdate = async () => {
         const isWorkoutLogged = workouts.length > 0;
         const loggedFoodsStr = (meals as Meal[]).map(m => m.name).join(', ') || 'לא נרשמו ארוחות';
 
+        // Fetch past 3 days context
+        const { start } = getLogicalDayBounds(user.resetTime || '00:00');
+        const pastDate = new Date(start);
+        pastDate.setDate(pastDate.getDate() - 3);
+        const pastStartIso = pastDate.toISOString();
+        const [pastMeals, pastWorkouts] = await Promise.all([
+            getLogicalDayMeals(pastStartIso, start),
+            getLogicalDayWorkouts(pastStartIso, start)
+        ]);
+        const pastMealsTotal = (pastMeals || []).reduce((sum, m) => sum + (m.calories || 0), 0);
+        const pastContextStr = `Past 3 days logged ${(pastMeals || []).length} meals (approx ${Math.round(pastMealsTotal)} kcal total) and ${(pastWorkouts || []).length} workouts.`;
+
         // Generate Explanation — returns null on any API/quota error
         const explanation = await generateDailyScoreExplanation(
             score,
             consumptionStr,
             isWorkoutLogged,
             user.goal,
-            loggedFoodsStr
+            loggedFoodsStr,
+            pastContextStr
         );
 
         if (!explanation) {

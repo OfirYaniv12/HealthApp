@@ -83,11 +83,11 @@ export default function ManualWorkoutScreen() {
                     <View style={styles.row}>
                         <View style={[styles.inputGroup, { flex: 1 }]}>
                             <Text style={styles.label}>זמני אימון (דקות)</Text>
-                            <TextInput style={styles.textInput} value={duration} onChangeText={setDuration} keyboardType="numeric" placeholder="45" placeholderTextColor="#94a3b8" textAlign="right" />
+                            <TextInput style={styles.textInput} value={duration} onChangeText={setDuration} keyboardType="decimal-pad" placeholder="45" placeholderTextColor="#94a3b8" textAlign="right" />
                         </View>
                         <View style={[styles.inputGroup, { flex: 1 }]}>
                             <Text style={styles.label}>קלוריות שנשרפו</Text>
-                            <TextInput style={styles.textInput} value={calories} onChangeText={setCalories} keyboardType="numeric" placeholder="300" placeholderTextColor="#94a3b8" textAlign="right" />
+                            <TextInput style={styles.textInput} value={calories} onChangeText={setCalories} keyboardType="decimal-pad" placeholder="300" placeholderTextColor="#94a3b8" textAlign="right" />
                         </View>
                     </View>
 

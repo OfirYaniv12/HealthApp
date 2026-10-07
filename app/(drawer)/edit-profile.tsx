@@ -229,7 +229,7 @@ export default function EditProfileScreen() {
                         <Text style={styles.label}>גיל</Text>
                         <TextInput
                             style={styles.textInput}
-                            keyboardType="numeric"
+                            keyboardType="decimal-pad"
                             value={age}
                             onChangeText={setAge}
                             textAlign="right"
@@ -240,7 +240,7 @@ export default function EditProfileScreen() {
                         <Text style={styles.label}>גובה (ס"מ)</Text>
                         <TextInput
                             style={styles.textInput}
-                            keyboardType="numeric"
+                            keyboardType="decimal-pad"
                             value={height}
                             onChangeText={setHeight}
                             textAlign="right"
@@ -251,7 +251,7 @@ export default function EditProfileScreen() {
                         <Text style={styles.label}>משקל (ק"ג)</Text>
                         <TextInput
                             style={styles.textInput}
-                            keyboardType="numeric"
+                            keyboardType="decimal-pad"
                             value={weight}
                             onChangeText={setWeight}
                             textAlign="right"

@@ -333,7 +333,7 @@ export default function MyWorkoutsScreen() {
                     <View style={styles.modalContent}>
                         <Text style={styles.modalTitle}>רישום אימון "{logTemplate?.name}"</Text>
                         <Text style={styles.inputLabel}>כמה זמן לקח האימון בדקות?</Text>
-                        <TextInput style={styles.modalInput} keyboardType="numeric" placeholder="למשל: 45" value={logDuration} onChangeText={setLogDuration} autoFocus />
+                        <TextInput style={styles.modalInput} keyboardType="decimal-pad" placeholder="למשל: 45" value={logDuration} onChangeText={setLogDuration} autoFocus />
                         <View style={styles.modalActions}>
                             <TouchableOpacity style={styles.modalCancel} onPress={() => !isGenerating && setLogModalVisible(false)}><Text style={styles.modalCancelText}>ביטול</Text></TouchableOpacity>
                             <TouchableOpacity style={styles.modalSubmit} onPress={handleLogWorkout} disabled={isGenerating}>

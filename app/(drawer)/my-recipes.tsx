@@ -93,11 +93,11 @@ export default function MyRecipesScreen() {
             }
         }
         let result = useCamera
-            ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8 })
-            : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8 });
+            ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8, base64: true })
+            : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8, base64: true });
 
         if (!result.canceled && result.assets && result.assets.length > 0) {
-            setSelectedImageUri(result.assets[0].uri);
+            setSelectedImageUri(result.assets[0].base64 ? data:image/jpeg;base64,\ : result.assets[0].uri);
         }
     };
 
@@ -291,11 +291,11 @@ export default function MyRecipesScreen() {
         }
 
         let result = useCamera
-            ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8 })
-            : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8 });
+            ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8, base64: true })
+            : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8, base64: true });
 
         if (!result.canceled && result.assets && result.assets.length > 0) {
-            await updateRecipeImage(id, result.assets[0].uri);
+            await updateRecipeImage(id, result.assets[0].base64 ? data:image/jpeg;base64,\ : result.assets[0].uri);
             loadData();
         }
     };
@@ -473,7 +473,7 @@ export default function MyRecipesScreen() {
                                                 style={[styles.inlineInput, { marginBottom: 0 }]}
                                                 value={(editManualNutrients as any)[key]}
                                                 onChangeText={(text) => setEditManualNutrients({ ...editManualNutrients, [key]: text })}
-                                                keyboardType="numeric"
+                                                keyboardType="decimal-pad"
                                                 placeholder="0"
                                             />
                                         </View>
@@ -504,7 +504,7 @@ export default function MyRecipesScreen() {
                                                 nl[index].amount = text;
                                                 setEditRecipeIngredients(nl);
                                             }}
-                                            keyboardType="numeric"
+                                            keyboardType="decimal-pad"
                                         />
                                         <TextInput
                                             style={[styles.inlineInput, { flex: 0.8, marginBottom: 0 }]}
@@ -836,7 +836,7 @@ export default function MyRecipesScreen() {
                                                 <TextInput
                                                     style={[styles.modalInput, { flex: 2, marginBottom: 0, backgroundColor: '#fff' }]}
                                                     placeholder="0"
-                                                    keyboardType="numeric"
+                                                    keyboardType="decimal-pad"
                                                     value={(manualNutrients as any)[nut.key]}
                                                     onChangeText={(val) => setManualNutrients(prev => ({ ...prev, [nut.key]: val }))}
                                                 />
@@ -873,7 +873,7 @@ export default function MyRecipesScreen() {
                                                     setRecipeIngredientsList(newList);
                                                 }}
                                                 editable={!isProcessingAI}
-                                                keyboardType="numeric"
+                                                keyboardType="decimal-pad"
                                             />
                                             <TextInput
                                                 style={[styles.modalInput, { flex: 0.8, marginBottom: 0 }]}

@@ -67,7 +67,19 @@ export default function DashboardScreen() {
           if (!isSameDay || !isSameHash || (isFailure && !isRecentFailure)) {
             if (isMounted) setLoadingRecs(true);
             const targets = { ...currentUser.daily_targets };
-            const recs = await generateDailyRecommendations(logs, workouts, targets, currentUser.goal);
+
+            // Fetch past 3 days context
+            const pastDate = new Date(start);
+            pastDate.setDate(pastDate.getDate() - 3);
+            const pastStartIso = pastDate.toISOString();
+            const [pastMeals, pastWorkouts] = await Promise.all([
+                getLogicalDayMeals(pastStartIso, start),
+                getLogicalDayWorkouts(pastStartIso, start)
+            ]);
+            const pastMealsTotal = (pastMeals || []).reduce((sum, m) => sum + (m.calories || 0), 0);
+            const pastContextStr = `Past 3 days logged ${(pastMeals || []).length} meals (approx ${Math.round(pastMealsTotal)} kcal total) and ${(pastWorkouts || []).length} workouts.`;
+
+            const recs = await generateDailyRecommendations(logs, workouts, targets, currentUser.goal, pastContextStr);
             if (isMounted) {
               if (recs) {
                 useUserStore.getState().setDailyRecommendations(todayDateStr, newHash, Date.now(), recs);
