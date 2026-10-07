@@ -543,7 +543,7 @@ CRITICAL TONE RULES:
 - Always respond in 100% HEBREW.
 
 Output Requirement:
-Return ONLY a strictly formatted JSON object. Do not wrap in markdown blocks like ```json.
+Return ONLY a strictly formatted JSON object. Do not wrap in markdown blocks like \`\`\`json.
 {
   "short": ["טיפ 1 קצר ונוקב", "טיפ 2 קצר ונוקב"],
   "full": "הסבר מפורט ומובנה היטב בעברית, המשקף ביקורת בונה (או שבחים) בהתבסס על ההתנהגות. השתמש בכותרות עם אימוג'ים (לדוגמה: 🍳 תזונה, 🏃 פעילות)."
