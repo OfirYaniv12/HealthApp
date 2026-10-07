@@ -46,8 +46,6 @@ export default function WorkoutForm({ visible, categories, isGenerating, onClose
     const [presetDuration, setPresetDuration] = useState('');
     const [distance, setDistance] = useState('');
     const [notes, setNotes] = useState('');
-    const [workoutType, setWorkoutType] = useState<'strength' | 'cardio'>('strength');
-    const [cardioDesc, setCardioDesc] = useState('');
 
     const handleAddBlock = () => {
         setBlocks(prev => [...prev, { id: Date.now().toString(), muscleGroup: '', exercises: [] }]);

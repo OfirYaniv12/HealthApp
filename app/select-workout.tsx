@@ -59,7 +59,7 @@ export default function SelectWorkoutModal() {
             const aiEstimation = await estimateTemplateWorkout(
                 user!,
                 template.name,
-                template.exercises || template.description,
+                template.exercises || template.description || null,
                 customNotes || null,
                 dur
             );
