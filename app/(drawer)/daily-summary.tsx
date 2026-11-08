@@ -1,6 +1,7 @@
-import { getLogicalDayMeals, getLogicalDayWorkouts, Meal, Workout } from '@/db/database';
+import { Meal, Workout } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
-import { calculateDailyScore } from '@/utils/dailyScore';
+import { getLogicalDayKey } from '@/utils/calculators';
+import { getFinalDaySummary } from '@/utils/scoreUpdater';
 import { Ionicons } from '@expo/vector-icons';
 import { DrawerActions, useNavigation } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -17,9 +18,15 @@ export default function DailySummaryScreen() {
     const [workouts, setWorkouts] = useState<Workout[]>([]);
     const [scoreData, setScoreData] = useState<any>(null);
     const [aiExplanation, setAiExplanation] = useState<string | null>(null);
+    const [explanationLoading, setExplanationLoading] = useState(false);
     const [loading, setLoading] = useState(true);
 
-    const targetDate = date ? new Date(date) : new Date();
+    // The calendar passes the logical day as YYYY-MM-DD (older links passed a full ISO date)
+    const dayKey = date
+        ? (/^\d{4}-\d{2}-\d{2}$/.test(date) ? date : getLogicalDayKey(new Date(date), user?.resetTime))
+        : getLogicalDayKey(new Date(), user?.resetTime);
+    const [ky, km, kd] = dayKey.split('-').map(Number);
+    const targetDate = new Date(ky, km - 1, kd, 12);
 
     const DAYS_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
     const MONTHS_HE = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
@@ -27,50 +34,42 @@ export default function DailySummaryScreen() {
     const formattedDateTitle = `יום ${DAYS_HE[targetDate.getDay()]}, ${targetDate.getDate()} ב${MONTHS_HE[targetDate.getMonth()]} ${targetDate.getFullYear()}`;
 
     useEffect(() => {
+        let cancelled = false;
         async function loadDayData() {
             if (!user?.daily_targets) return;
+            setLoading(true);
+            setAiExplanation(null);
 
             try {
-                const year = targetDate.getFullYear();
-                const month = targetDate.getMonth();
-                const d = targetDate.getDate();
+                // Final state of the day as it stood at the day-reset time (no AI call yet: fast)
+                const summary = await getFinalDaySummary(dayKey);
+                if (!summary || cancelled) return;
+                setMeals(summary.meals as Meal[]);
+                setWorkouts(summary.workouts as Workout[]);
+                const hasData = summary.meals.length > 0 || summary.workouts.length > 0;
+                setScoreData(hasData ? summary.score : null);
+                setAiExplanation(summary.explanation);
+                setLoading(false);
 
-                const startOfDay = new Date(year, month, d, 0, 0, 0);
-                const endOfDay = new Date(startOfDay.getTime() + (24 * 60 * 60 * 1000));
-
-                const startIso = startOfDay.toISOString();
-                const endIso = endOfDay.toISOString();
-
-                const m = await getLogicalDayMeals(startIso, endIso);
-                const w = await getLogicalDayWorkouts(startIso, endIso);
-
-                setMeals(m);
-                setWorkouts(w);
-
-                // Re-calculate the exact score mathematically
-                let calcScore = null;
-                if (m.length > 0 || w.length > 0) {
-                    calcScore = calculateDailyScore(
-                        m, w, user.daily_targets, user.trackedNutrients, user.goal, targetDate.getTime(), user.resetTime
-                    );
+                // If there is no final AI summary for this day yet (or the data changed), write one now
+                if (hasData && !summary.explanation) {
+                    setExplanationLoading(true);
+                    const withAi = await getFinalDaySummary(dayKey, { generateExplanation: true });
+                    if (!cancelled && withAi?.explanation) setAiExplanation(withAi.explanation);
                 }
-                setScoreData(calcScore);
-
-                // Fetch AI Explanation from Store if exists
-                const dateStr = startIso.split('T')[0];
-                if (user.dailyScoreExplanations && user.dailyScoreExplanations[dateStr]) {
-                    setAiExplanation(user.dailyScoreExplanations[dateStr]);
-                }
-
             } catch (err) {
                 console.error('Error loading daily summary', err);
             } finally {
-                setLoading(false);
+                if (!cancelled) {
+                    setLoading(false);
+                    setExplanationLoading(false);
+                }
             }
         }
 
         loadDayData();
-    }, [date, user]);
+        return () => { cancelled = true; };
+    }, [dayKey, user?.daily_targets, user?.resetTime]);
 
     const getScoreColor = (s: number) => {
         if (s >= 7) return '#10b981'; // Green
@@ -134,10 +133,17 @@ export default function DailySummaryScreen() {
                 )}
 
                 {/* AI Explanation Card */}
-                {aiExplanation && (
+                {(aiExplanation || explanationLoading) && (
                     <View style={styles.card}>
-                        <Text style={styles.sectionTitle}>סיכום תזונתי (AI)</Text>
-                        <Text style={styles.aiText}>{aiExplanation}</Text>
+                        <Text style={styles.sectionTitle}>סיכום היום (AI)</Text>
+                        {aiExplanation
+                            ? <Text style={styles.aiText}>{aiExplanation}</Text>
+                            : (
+                                <View style={{ flexDirection: 'row-reverse', alignItems: 'center', gap: 8 }}>
+                                    <ActivityIndicator size="small" color="#3b82f6" />
+                                    <Text style={styles.aiText}>כותב סיכום סופי ליום...</Text>
+                                </View>
+                            )}
                     </View>
                 )}
 

@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 
 import { supabase } from '@/utils/supabase';
+import { pullUserSettings } from '@/utils/userSettingsSync';
+import { fetchUserProfile, saveUserProfile } from '@/db/database';
 
 export default function Index() {
     const [mounted, setMounted] = useState(false);
@@ -44,11 +46,20 @@ export default function Index() {
                 if (session && !error) {
                     if (isMounted) setHasSession(true);
                     
-                    if (!useUserStore.getState().user?.full_name) {
-                        const { data: userData } = await supabase.from('users').select('*').eq('id', session.user.id).single();
-                        if (userData && userData.full_name) {
-                            useUserStore.getState().setUser(userData);
-                        }
+                    const localUser = useUserStore.getState().user;
+                    if (!localUser?.full_name) {
+                        const userData = await fetchUserProfile(session.user.id);
+                        if (userData) useUserStore.getState().setUser(userData);
+                    } else {
+                        // This device has the profile. If the cloud doesn't (older versions failed to save it),
+                        // upload it now so other devices get it too. Then sync settings in the background.
+                        (async () => {
+                            const remote = await fetchUserProfile(session.user.id);
+                            if (!remote && (!localUser.id || localUser.id === session.user.id)) {
+                                await saveUserProfile({ ...localUser, id: session.user.id } as any);
+                            }
+                            pullUserSettings();
+                        })();
                     }
                 } else {
                     if (isMounted) setHasSession(false);

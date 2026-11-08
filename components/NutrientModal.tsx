@@ -1,5 +1,6 @@
 import { Meal } from '@/db/database';
 import { UserData } from '@/store/useUserStore';
+import { getLogicalDayKey } from '@/utils/calculators';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { I18nManager, Modal, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -37,7 +38,7 @@ export default function NutrientModal({ visible, onClose, user, meals }: Nutrien
     const totalSodium = meals.reduce((sum, m) => sum + (m.sodium || 0), 0);
     const totalSugar = meals.reduce((sum, m) => sum + (m.sugar || 0), 0);
 
-    const todayDateStr = new Date().toISOString().split('T')[0];
+    const todayDateStr = getLogicalDayKey(new Date(), user?.resetTime);
     const scoreExpCache = user.dailyScoreExplanations?.[todayDateStr];
     let aiStatuses: Record<string, string> = {};
     if (scoreExpCache) {

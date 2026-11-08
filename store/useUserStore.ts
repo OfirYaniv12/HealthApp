@@ -26,6 +26,7 @@ export interface UserData {
     };
     trackedNutrients?: Record<string, boolean>;
     resetTime?: string; // e.g. "00:00" or "02:00"
+    settingsUpdatedAt?: number; // when resetTime / trackedNutrients last changed (for syncing between devices)
     aiPlanExplanation?: string;
     dailyScoreExplanations?: Record<string, string>;
     dailyScoreLastUpdated?: Record<string, number>; // Maps date string to timestamp indicating when explanation was generated
@@ -65,7 +66,7 @@ export const useUserStore = create<UserState>()(
                 })),
             updateTrackedNutrients: (nutrients) =>
                 set((state) => ({
-                    user: state.user ? { ...state.user, trackedNutrients: { ...(state.user.trackedNutrients || {}), ...nutrients } } : null
+                    user: state.user ? { ...state.user, trackedNutrients: { ...(state.user.trackedNutrients || {}), ...nutrients }, settingsUpdatedAt: Date.now() } : null
                 })),
             updateAiPlan: (targets, explanation) =>
                 set((state) => ({

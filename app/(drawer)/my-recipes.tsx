@@ -58,6 +58,7 @@ export default function MyRecipesScreen() {
     const [editRecipeIngredients, setEditRecipeIngredients] = useState([{ id: Date.now().toString(), amount: '', unit: '', name: '' }]);
     const [editRecipeInstructions, setEditRecipeInstructions] = useState('');
     const [editManualNutrients, setEditManualNutrients] = useState({ calories: '', protein: '', carbs: '', fat: '', fiber: '', sodium: '', sugar: '' });
+    const [isSavingEdit, setIsSavingEdit] = useState(false);
 
     const loadData = async () => {
         try {
@@ -292,6 +293,82 @@ export default function MyRecipesScreen() {
         }
     };
 
+    const handleSaveRecipeEdit = async (item: Recipe) => {
+        if (!editRecipeName.trim()) {
+            Alert.alert('שגיאה', 'יש להזין שם למתכון.');
+            return;
+        }
+
+        const parseVal = (v: any) => v && !isNaN(parseFloat(v)) ? parseFloat(v) : 0;
+        setIsSavingEdit(true);
+        try {
+            if (!item.nutritional_values) {
+                // Manually entered recipe: the user edits the nutrient values directly
+                await updateRecipe(
+                    item.id!,
+                    editRecipeName.trim(),
+                    editRecipeCategoryId,
+                    item.ingredients_list,
+                    editRecipeInstructions.trim() || null,
+                    parseVal(editManualNutrients.calories),
+                    parseVal(editManualNutrients.protein),
+                    parseVal(editManualNutrients.carbs),
+                    parseVal(editManualNutrients.fat),
+                    parseVal(editManualNutrients.fiber),
+                    parseVal(editManualNutrients.sodium),
+                    parseVal(editManualNutrients.sugar)
+                );
+            } else {
+                const finalIngs = editRecipeIngredients.filter(i => i.amount.trim() && i.name.trim());
+                if (finalIngs.length === 0) {
+                    Alert.alert('שגיאה', 'יש להשאיר לפחות מרכיב אחד במתכון.');
+                    return;
+                }
+                const combinedIngs = finalIngs.map(i => `${i.amount} ${i.unit} ${i.name}`.replace(/\s+/g, ' ').trim()).join('\n');
+                const normalize = (s: string) => s.replace(/\\n/g, '\n').split('\n').map(l => l.replace(/^- /, '').replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
+                const ingredientsChanged = normalize(combinedIngs) !== normalize(item.ingredients_list);
+
+                if (ingredientsChanged) {
+                    // Ingredients changed, so the old AI nutrition values are no longer correct: re-analyze
+                    const aiAnalysis = await analyzeRecipe(
+                        editRecipeName.trim(),
+                        finalIngs.map(i => ({ quantity: `${i.amount} ${i.unit}`.trim(), name: i.name })),
+                        editRecipeInstructions.trim() || null
+                    );
+                    if (!aiAnalysis) throw new Error('AI parsing failed');
+                    await updateRecipe(
+                        item.id!,
+                        editRecipeName.trim(),
+                        editRecipeCategoryId,
+                        combinedIngs,
+                        editRecipeInstructions.trim() || null,
+                        aiAnalysis.totals.calories, aiAnalysis.totals.protein, aiAnalysis.totals.carbs, aiAnalysis.totals.fat,
+                        aiAnalysis.totals.fiber, aiAnalysis.totals.sodium, aiAnalysis.totals.sugar,
+                        { nutritional_values: JSON.stringify(aiAnalysis.ingredientBreakdown), health_score: aiAnalysis.healthScore }
+                    );
+                } else {
+                    await updateRecipe(
+                        item.id!,
+                        editRecipeName.trim(),
+                        editRecipeCategoryId,
+                        item.ingredients_list,
+                        editRecipeInstructions.trim() || null,
+                        item.calories, item.protein, item.carbs, item.fat, item.fiber, item.sodium, item.sugar
+                    );
+                }
+            }
+            setEditingRecipeId(null);
+            loadData();
+        } catch (e: any) {
+            console.error('Recipe update error', e);
+            Alert.alert('שגיאה', e?.message === 'AI_QUOTA_EXCEEDED'
+                ? 'מכסה השימוש ב-AI הסתיימה זמנית. נסה שוב בעוד כדקה.'
+                : 'לא הצלחנו לעדכן את המתכון. נסה שוב.');
+        } finally {
+            setIsSavingEdit(false);
+        }
+    };
+
     const toggleFilters = () => {
         if (showFilters) {
             setSelectedCategoryFilter('all');
@@ -357,13 +434,16 @@ export default function MyRecipesScreen() {
             } catch (e) { }
         }
 
-        console.log('Recipe Image URI for', item.name, ':', item.image_uri);
+        // While this recipe is being edited the card must not react to taps:
+        // otherwise every tap inside an input bubbles up and collapses the card.
+        const isEditingThis = editingRecipeId === item.id;
+        const CardContainer: any = isEditingThis ? View : TouchableOpacity;
+        const cardContainerProps = isEditingThis
+            ? {}
+            : { onPress: () => setExpandedId(isExpanded ? null : item.id!), activeOpacity: 0.8 };
+
         return (
-            <TouchableOpacity
-                style={styles.card}
-                onPress={() => setExpandedId(isExpanded ? null : item.id!)}
-                activeOpacity={0.8}
-            >
+            <CardContainer style={styles.card} {...cardContainerProps}>
                 <View style={[styles.cardHeader, { flexDirection: 'row-reverse' }]}>
                         {item.image_uri ? (
                             <TouchableOpacity onPress={(e) => {
@@ -530,48 +610,12 @@ export default function MyRecipesScreen() {
                         />
 
                         <View style={{ flexDirection: 'row-reverse', gap: 12, marginTop: 16 }}>
-                            <TouchableOpacity style={[styles.modalSubmit, { flex: 1 }]} onPress={async () => {
-                                if (!editRecipeName.trim()) {
-                                    Alert.alert('שגיאה', 'יש להזין שם למתכון.');
-                                    return;
-                                }
-                                
-                                const parseVal = (v: any) => v && !isNaN(parseFloat(v)) ? parseFloat(v) : 0;
-                                
-                                if (!item.nutritional_values) {
-                                    // Manual recipe update
-                                    await updateRecipe(
-                                        item.id!, 
-                                        editRecipeName.trim(), 
-                                        editRecipeCategoryId, 
-                                        item.ingredients_list, // preserve what's there
-                                        editRecipeInstructions.trim() || null,
-                                        parseVal(editManualNutrients.calories),
-                                        parseVal(editManualNutrients.protein),
-                                        parseVal(editManualNutrients.carbs),
-                                        parseVal(editManualNutrients.fat),
-                                        parseVal(editManualNutrients.fiber),
-                                        parseVal(editManualNutrients.sodium),
-                                        parseVal(editManualNutrients.sugar)
-                                    );
-                                } else {
-                                    const finalIngs = editRecipeIngredients.filter(i => i.amount.trim() && i.name.trim());
-                                    const combinedIngs = finalIngs.map(i => `${i.amount} ${i.unit} ${i.name}`).join('\n');
-                                    await updateRecipe(
-                                        item.id!, 
-                                        editRecipeName.trim(), 
-                                        editRecipeCategoryId, 
-                                        combinedIngs, 
-                                        editRecipeInstructions.trim() || null,
-                                        item.calories, item.protein, item.carbs, item.fat, item.fiber, item.sodium, item.sugar // preserve AI math totals
-                                    );
-                                }
-                                setEditingRecipeId(null);
-                                loadData();
-                            }}>
-                                <Text style={styles.modalSubmitText}>עדכון</Text>
+                            <TouchableOpacity style={[styles.modalSubmit, { flex: 1 }, isSavingEdit && { opacity: 0.6 }]} disabled={isSavingEdit} onPress={() => handleSaveRecipeEdit(item)}>
+                                {isSavingEdit
+                                    ? <ActivityIndicator color="#fff" />
+                                    : <Text style={styles.modalSubmitText}>עדכון</Text>}
                             </TouchableOpacity>
-                            <TouchableOpacity style={[styles.modalCancel, { flex: 1, backgroundColor: '#f1f5f9' }]} onPress={() => setEditingRecipeId(null)}>
+                            <TouchableOpacity style={[styles.modalCancel, { flex: 1, backgroundColor: '#f1f5f9' }]} disabled={isSavingEdit} onPress={() => setEditingRecipeId(null)}>
                                 <Text style={[styles.modalCancelText, { color: '#64748b' }]}>ביטול</Text>
                             </TouchableOpacity>
                         </View>
@@ -638,7 +682,7 @@ export default function MyRecipesScreen() {
                         )}
                     </View>
                 )}
-            </TouchableOpacity>
+            </CardContainer>
         );
     };
 
@@ -714,6 +758,8 @@ export default function MyRecipesScreen() {
                     data={filteredRecipes}
                     keyExtractor={item => item.id!.toString()}
                     renderItem={renderRecipe}
+                    extraData={[editingRecipeId, editRecipeIngredients, editRecipeName, editRecipeInstructions, editManualNutrients, editRecipeCategoryId, isSavingEdit, expandedId]}
+                    keyboardShouldPersistTaps="handled"
                     contentContainerStyle={styles.listContent}
                 />
             )}

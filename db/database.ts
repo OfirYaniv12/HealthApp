@@ -65,6 +65,59 @@ export interface Recipe {
     category_name?: string;
 }
 
+/**
+ * Saves the user's profile to the `users` table (one row per account).
+ * Returns the Supabase error message, or null on success, so callers can tell the user.
+ */
+export const saveUserProfile = async (profile: {
+    full_name: string; gender: string; age: number; height: number; weight: number;
+    goal: string; activity_level: string; workout_frequency: string; body_type: string;
+    target_pace?: string | null; daily_targets: any;
+    resetTime?: string; trackedNutrients?: Record<string, boolean>; settingsUpdatedAt?: number;
+}): Promise<string | null> => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return 'not logged in';
+    const { error } = await supabase.from('users').upsert({
+        id: session.user.id,
+        full_name: profile.full_name,
+        gender: profile.gender,
+        age: profile.age,
+        height: profile.height,
+        weight: profile.weight,
+        goal: profile.goal,
+        activity_level: profile.activity_level,
+        workout_frequency: profile.workout_frequency,
+        body_type: profile.body_type,
+        target_pace: profile.target_pace || null,
+        target_calories: profile.daily_targets?.calories ? Math.round(profile.daily_targets.calories) : null,
+        daily_targets: profile.daily_targets,
+        settings: {
+            resetTime: profile.resetTime || '00:00',
+            trackedNutrients: profile.trackedNutrients || null,
+            updatedAt: profile.settingsUpdatedAt || Date.now(),
+        },
+    });
+    if (error) {
+        console.error('Failed to save user profile:', error);
+        return error.message;
+    }
+    return null;
+};
+
+/** Loads the profile row and converts it to the app's user shape (null if there is none). */
+export const fetchUserProfile = async (userId: string): Promise<any | null> => {
+    const { data, error } = await supabase.from('users').select('*').eq('id', userId).maybeSingle();
+    if (error || !data || !data.full_name) return null;
+    const { settings, target_calories, ...profile } = data as any;
+    return {
+        ...profile,
+        daily_targets: profile.daily_targets || { calories: target_calories || 2000, protein: 120, carbs: 200, fat: 60 },
+        ...(settings?.resetTime ? { resetTime: settings.resetTime } : {}),
+        ...(settings?.trackedNutrients ? { trackedNutrients: settings.trackedNutrients } : {}),
+        ...(settings?.updatedAt ? { settingsUpdatedAt: settings.updatedAt } : {}),
+    };
+};
+
 export const getDB = async () => ({});
 export const initDB = async () => {};
 
@@ -176,6 +229,14 @@ export const addWorkoutTemplate = async (template: Omit<WorkoutTemplate, 'id' | 
     return data;
 };
 
+export const updateWorkoutTemplate = async (
+    id: number,
+    fields: Partial<Pick<WorkoutTemplate, 'name' | 'category_id' | 'exercises' | 'summary' | 'description'>>
+) => {
+    const { error } = await supabase.from('workout_templates').update(fields).eq('id', id);
+    if (error) throw error;
+};
+
 export const updateWorkoutTemplateLastPerformed = async (id: number, dateIso: string) => {
     const { error } = await supabase.from('workout_templates').update({ last_performed_date: dateIso }).eq('id', id);
     if (error) throw error;
@@ -253,10 +314,12 @@ export const updateRecipe = async (
     fat: number,
     fiber?: number,
     sodium?: number,
-    sugar?: number
+    sugar?: number,
+    extra?: { nutritional_values?: string | null; health_score?: number | null }
 ) => {
     const { error } = await supabase.from('recipes').update({
-        name, category_id, ingredients_list, instructions, calories, protein, carbs, fat, fiber, sodium, sugar
+        name, category_id, ingredients_list, instructions, calories, protein, carbs, fat, fiber, sodium, sugar,
+        ...(extra || {})
     }).eq('id', id);
     if (error) throw error;
 };

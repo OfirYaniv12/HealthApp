@@ -10,5 +10,10 @@
         }
       ]
     }
-  ]
+  ],
+  "functions": {
+    "api/gemini.js": {
+      "maxDuration": 60
+    }
+  }
 }

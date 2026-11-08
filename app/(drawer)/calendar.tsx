@@ -1,5 +1,6 @@
-import { getLogicalDayMeals, getLogicalDayWorkouts } from '@/db/database';
+import { getLogicalDayMeals, getLogicalDayWorkouts, Meal, Workout } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
+import { getLogicalDayBoundsForKey, getLogicalDayKey, toLocalDateKey } from '@/utils/calculators';
 import { calculateDailyScore } from '@/utils/dailyScore';
 import { Ionicons } from '@expo/vector-icons';
 import { DrawerActions, useNavigation } from '@react-navigation/native';
@@ -26,56 +27,49 @@ export default function CalendarScreen() {
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const numRows = Math.ceil((firstDay + daysInMonth) / 7);
 
+    const resetTime = user?.resetTime || '00:00';
+    const todayKey = getLogicalDayKey(new Date(), resetTime);
+    const dayKeyOf = (d: number) => toLocalDateKey(new Date(year, month, d));
+
     useEffect(() => {
         async function loadMonthScores() {
             if (!user?.daily_targets) return;
 
-            const newScores: Record<number, number> = {};
-            const today = new Date();
-            const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+            try {
+                // One query for the whole month, using the logical-day boundaries (day-reset time)
+                const monthStart = getLogicalDayBoundsForKey(dayKeyOf(1), resetTime).start;
+                const monthEnd = getLogicalDayBoundsForKey(dayKeyOf(daysInMonth), resetTime).end;
+                const [allMeals, allWorkouts] = await Promise.all([
+                    getLogicalDayMeals(monthStart, monthEnd),
+                    getLogicalDayWorkouts(monthStart, monthEnd),
+                ]);
 
-            const promises = [];
-            for (let d = 1; d <= daysInMonth; d++) {
-                const cellDate = new Date(year, month, d, 12); // Noon
+                const mealsByDay: Record<string, Meal[]> = {};
+                const workoutsByDay: Record<string, Workout[]> = {};
+                allMeals.forEach((m: Meal) => { (mealsByDay[getLogicalDayKey(new Date(m.timestamp), resetTime)] ||= []).push(m); });
+                allWorkouts.forEach((w: Workout) => { (workoutsByDay[getLogicalDayKey(new Date(w.timestamp), resetTime)] ||= []).push(w); });
 
-                // Do not calculate scores for today or future days
-                const startOfCellDay = new Date(year, month, d).getTime();
-                if (startOfCellDay >= startOfToday) {
-                    continue;
+                const newScores: Record<number, number> = {};
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const key = dayKeyOf(d);
+                    if (key >= todayKey) continue; // Only finished days get a final score
+                    const m = mealsByDay[key] || [];
+                    const w = workoutsByDay[key] || [];
+                    if (m.length === 0 && w.length === 0) continue; // Only rate days with tracked activity
+                    const { endDate } = getLogicalDayBoundsForKey(key, resetTime);
+                    newScores[d] = calculateDailyScore(
+                        m, w, user.daily_targets!, user.trackedNutrients, user.goal,
+                        endDate.getTime() - 60 * 1000, resetTime, { dayComplete: true }
+                    ).totalScore;
                 }
-
-                promises.push((async () => {
-                    try {
-                        const startOfDay = new Date(year, month, d, 0, 0, 0);
-                        const endOfDay = new Date(startOfDay.getTime() + (24 * 60 * 60 * 1000));
-                        const m = await getLogicalDayMeals(startOfDay.toISOString(), endOfDay.toISOString());
-                        const w = await getLogicalDayWorkouts(startOfDay.toISOString(), endOfDay.toISOString());
-
-                        // Only rate days where the user actually tracked activity
-                        if (m.length > 0 || w.length > 0) {
-                            const scoreData = calculateDailyScore(
-                                m,
-                                w,
-                                user.daily_targets!,
-                                user.trackedNutrients,
-                                user.goal,
-                                cellDate.getTime(),
-                                user.resetTime
-                            );
-                            newScores[d] = scoreData.totalScore;
-                        }
-                    } catch (err) {
-                        console.error('Error loading score for day', d, err);
-                    }
-                })());
+                setScores(newScores);
+            } catch (err) {
+                console.error('Error loading month scores', err);
             }
-
-            await Promise.all(promises);
-            setScores(newScores);
         }
 
         loadMonthScores();
-    }, [currentDate, user]);
+    }, [currentDate, user?.daily_targets, user?.trackedNutrients, user?.goal, resetTime]);
 
     const handlePrevMonth = () => {
         setCurrentDate(new Date(year, month - 1, 1));
@@ -86,14 +80,13 @@ export default function CalendarScreen() {
     };
 
     const getScoreColor = (score: number) => {
-        if (score >= 8.0) return '#10b981'; // Green
-        if (score >= 5.0) return '#f59e0b'; // Yellow
+        if (score >= 7.0) return '#10b981'; // Green (same scale as the day summary)
+        if (score >= 4.0) return '#f59e0b'; // Yellow
         return '#ef4444'; // Red
     };
 
     const handleDayPress = (d: number) => {
-        const clickedDate = new Date(year, month, d, 12);
-        router.push({ pathname: '/(drawer)/daily-summary', params: { date: clickedDate.toISOString() } });
+        router.push({ pathname: '/(drawer)/daily-summary', params: { date: dayKeyOf(d) } });
     };
 
     // Render Grid Cells
@@ -106,12 +99,9 @@ export default function CalendarScreen() {
         }
 
         // Days of the month
-        const startOfToday = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
-
         for (let d = 1; d <= daysInMonth; d++) {
             const score = scores[d];
-            const startOfCellDay = new Date(year, month, d).getTime();
-            const isPastDay = startOfCellDay < startOfToday;
+            const isPastDay = dayKeyOf(d) < todayKey;
 
             cells.push(
                 <TouchableOpacity

@@ -11,6 +11,31 @@ export interface ScoreBreakdown {
     healthQualityScore: number;
 }
 
+export type WorkoutLevel = 'significant' | 'light';
+
+/**
+ * Decides whether a logged workout is a "real" training session that counts toward the weekly
+ * workout goal, or light activity (nice, but not a workout). Based on duration, energy and type.
+ */
+export function classifyWorkout(w: Pick<Workout, 'name' | 'duration_minutes' | 'calories_burned' | 'description'>): { level: WorkoutLevel; reason: string } {
+    const text = `${w.name || ''} ${w.description || ''}`;
+    const minutes = Number(w.duration_minutes) || 0;
+    const kcal = Number(w.calories_burned) || 0;
+    const isWalk = /הליכ|walk/i.test(text) && !/ריצ|run/i.test(text);
+    const distMatch = text.replace(',', '.').match(/מרחק:\s*(\d+(?:\.\d+)?)/);
+    const km = distMatch ? parseFloat(distMatch[1]) : null;
+
+    if (isWalk) {
+        const speed = km && minutes ? km / (minutes / 60) : null;
+        if (minutes >= 45 || (km !== null && km >= 5) || (speed !== null && speed >= 5.5 && minutes >= 30)) {
+            return { level: 'significant', reason: 'הליכה ארוכה/מהירה' };
+        }
+        return { level: 'light', reason: 'הליכה קצרה - פעילות קלה' };
+    }
+    if (minutes >= 25 || kcal >= 200) return { level: 'significant', reason: 'אימון מלא' };
+    return { level: 'light', reason: 'פעילות קצרה' };
+}
+
 export function calculateDailyScore(
     meals: Meal[],
     workouts: Workout[],
@@ -18,15 +43,21 @@ export function calculateDailyScore(
     tracked: Record<string, boolean> | undefined,
     userGoal: GoalType = 'אורח חיים בריא יותר',
     currentTimeMs: number = Date.now(),
-    resetTimeStr: string = '00:00'
+    resetTimeStr: string = '00:00',
+    options: { dayComplete?: boolean } = {}
 ): ScoreBreakdown {
     // 1. Calculate Time Progress (Expected Progress)
     // Assuming a standard "active" day is from 08:00 to 22:00 (14 hours) for eating.
     const now = new Date(currentTimeMs);
     const hour = now.getHours() + now.getMinutes() / 60;
+    const [resetH, resetM] = (resetTimeStr || '00:00').split(':').map(Number);
+    const resetHour = (resetH || 0) + (resetM || 0) / 60;
 
     let progressExpected = 0;
-    if (hour < 8) {
+    if (options.dayComplete || hour < resetHour) {
+        // A finished day (or the late-night hours that still belong to it): the whole day's intake is expected
+        progressExpected = 1.0;
+    } else if (hour < 8) {
         progressExpected = 0.0; // 0% expected before 8 AM
     } else if (hour >= 22) {
         progressExpected = 1.0; // 100% expected after 10 PM
@@ -163,11 +194,11 @@ export function calculateDailyScore(
         baseNutritionScore = Math.min(baseNutritionScore, 5.5);
     }
 
-    // 4. Workout Bonus
+    // 4. Workout Bonus: a real workout earns the full bonus, light activity (e.g. a short walk) a small one
     let workoutBonus = 0;
     if (workouts.length > 0) {
-        // Workout provides a buffer/bonus to recover points, but max total is 10.
-        workoutBonus = 1;
+        const hasSignificant = workouts.some(w => classifyWorkout(w).level === 'significant');
+        workoutBonus = hasSignificant ? 1 : 0.3;
     }
 
     // 5. Final Score Calculation

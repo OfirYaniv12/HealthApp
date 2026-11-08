@@ -1,7 +1,7 @@
 import { AlertManager as Alert } from '@/components/GlobalAlert';
-import { addWorkout, getWorkoutCategories, getWorkoutTemplates, updateWorkoutTemplateLastPerformed, WorkoutCategory, WorkoutTemplate } from '@/db/database';
+import { getWorkoutCategories, getWorkoutTemplates, WorkoutCategory, WorkoutTemplate } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
-import { estimateTemplateWorkout } from '@/utils/ai';
+import { DISTANCE_TYPES, getFixedDuration, logTemplateWorkout, parseTemplateMeta } from '@/utils/workoutTemplates';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
@@ -25,6 +25,7 @@ export default function SelectWorkoutModal() {
     const [isDurationModalVisible, setDurationModalVisible] = useState(false);
     const [durationInput, setDurationInput] = useState('');
     const [notesInput, setNotesInput] = useState('');
+    const [distanceInput, setDistanceInput] = useState('');
     const [selectedTemplateForLog, setSelectedTemplateForLog] = useState<WorkoutTemplate | null>(null);
     const [isProcessingLog, setIsProcessingLog] = useState(false);
 
@@ -45,54 +46,48 @@ export default function SelectWorkoutModal() {
         }, [])
     );
 
+    const selectedMeta = selectedTemplateForLog ? parseTemplateMeta(selectedTemplateForLog) : null;
+    const selectedFixedDuration = selectedMeta ? getFixedDuration(selectedMeta) : null;
+    const selectedUsesDistance = selectedMeta ? DISTANCE_TYPES.includes(selectedMeta.type) : false;
+
     const handleSelectForLog = (template: WorkoutTemplate) => {
+        const meta = parseTemplateMeta(template);
+        const fixed = getFixedDuration(meta);
+        const needsDistance = DISTANCE_TYPES.includes(meta.type) && !meta.distance;
+
+        // Fixed-duration workout with everything already known: log it right away, like in "My Workouts"
+        if (fixed && !needsDistance) {
+            executeLogWorkout(fixed, template, meta.distance, '');
+            return;
+        }
+
         setSelectedTemplateForLog(template);
-        setDurationInput('');
+        setDurationInput(fixed ? String(fixed) : '');
+        setDistanceInput(meta.distance || '');
         setNotesInput('');
         setDurationModalVisible(true);
     };
 
-    const executeLogWorkout = async (durStr: string, template: WorkoutTemplate, customNotes?: string) => {
+    const executeLogWorkout = async (durationMinutes: number, template: WorkoutTemplate, distanceText?: string, customNotes?: string) => {
+        if (!user) return;
         setIsProcessingLog(true);
         try {
-            const dur = parseInt(durStr) || 30;
-            const aiEstimation = await estimateTemplateWorkout(
-                user!,
-                template.name,
-                template.exercises || template.description || null,
-                customNotes || null,
-                dur
-            );
-
-            let calBurned = 0;
-            let aiSummary = '';
-
-            if (aiEstimation) {
-                calBurned = aiEstimation.calories_burned;
-                aiSummary = aiEstimation.summary;
-            } else {
-                calBurned = Math.round(8 * (user?.weight || 74) * (dur / 60)); 
-            }
-
-            await addWorkout({
-                name: template.name,
-                duration_minutes: dur,
-                calories_burned: calBurned,
-                exercises: template.exercises,
-                timestamp: new Date().toISOString(),
-                
+            const { calBurned, summary } = await logTemplateWorkout({
+                user,
+                template,
+                durationMinutes,
+                distanceText: distanceText || null,
+                notes: customNotes || null,
             });
-
-            await updateWorkoutTemplateLastPerformed(template.id!, new Date().toISOString());
 
             setDurationModalVisible(false);
             setDurationInput('');
+            setDistanceInput('');
             setNotesInput('');
-            
-            setTimeout(() => {
-                router.replace('/(drawer)/workout-history');
-            }, 100);
-            
+
+            Alert.alert('אימון נרשם בהצלחה!', `שרפת כ-${calBurned} קלוריות.${summary ? `\n\n${summary}` : ''}`, [
+                { text: 'אישור', onPress: () => router.replace('/(drawer)/workout-history') }
+            ]);
         } catch (e) {
             Alert.alert('שגיאה', 'ארעה שגיאה בעת רישום האימון.');
         } finally {
@@ -101,12 +96,13 @@ export default function SelectWorkoutModal() {
     };
 
     const handleConfirmLog = async () => {
-        if (!durationInput || isNaN(Number(durationInput)) || Number(durationInput) <= 0) {
+        if (!user || !selectedTemplateForLog) return;
+        const dur = selectedFixedDuration ?? Number(durationInput);
+        if (!dur || isNaN(dur) || dur <= 0) {
             Alert.alert('שגיאה', 'יש להזין משך זמן תקין בדקות.');
             return;
         }
-        if (!user || !selectedTemplateForLog) return;
-        await executeLogWorkout(durationInput, selectedTemplateForLog, notesInput.trim());
+        await executeLogWorkout(dur, selectedTemplateForLog, distanceInput.trim(), notesInput.trim());
     };
 
     const filteredTemplates = templates.filter(t => {
@@ -219,18 +215,36 @@ export default function SelectWorkoutModal() {
                         <Text style={styles.modalTitle}>הגדרות אימון</Text>
                         <Text style={styles.modalSubTitle}>{selectedTemplateForLog?.name}</Text>
 
-                        <Text style={styles.inputLabel}>משך זמן אימון (בדקות):</Text>
-                        <View style={{ flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'center', marginVertical: 8 }}>
-                            <TextInput
-                                style={[styles.modalInput, { width: 100, textAlign: 'center', fontSize: 20, marginBottom: 0 }]}
-                                placeholder="0"
-                                keyboardType="decimal-pad"
-                                value={durationInput}
-                                onChangeText={setDurationInput}
-                                autoFocus
-                            />
-                            <Text style={{ fontSize: 18, marginRight: 8, color: '#1e293b', fontWeight: 'bold' }}>דקות</Text>
-                        </View>
+                        {selectedFixedDuration ? (
+                            <Text style={[styles.inputLabel, { textAlign: 'center' }]}>זמן קבוע: {selectedFixedDuration} דקות</Text>
+                        ) : (
+                            <>
+                                <Text style={styles.inputLabel}>משך זמן אימון (בדקות):</Text>
+                                <View style={{ flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'center', marginVertical: 8 }}>
+                                    <TextInput
+                                        style={[styles.modalInput, { width: 100, textAlign: 'center', fontSize: 20, marginBottom: 0 }]}
+                                        placeholder="0"
+                                        keyboardType="decimal-pad"
+                                        value={durationInput}
+                                        onChangeText={setDurationInput}
+                                        autoFocus
+                                    />
+                                    <Text style={{ fontSize: 18, marginRight: 8, color: '#1e293b', fontWeight: 'bold' }}>דקות</Text>
+                                </View>
+                            </>
+                        )}
+
+                        {selectedUsesDistance && (
+                            <>
+                                <Text style={[styles.inputLabel, { marginTop: 12 }]}>מרחק (ק"מ):</Text>
+                                <TextInput
+                                    style={styles.modalInput}
+                                    placeholder='לדוגמה: 5 ק"מ או 800 מטר'
+                                    value={distanceInput}
+                                    onChangeText={setDistanceInput}
+                                />
+                            </>
+                        )}
 
                         <Text style={[styles.inputLabel, { marginTop: 12 }]}>פירוט נוסף/הערות (רשות):</Text>
                         <TextInput

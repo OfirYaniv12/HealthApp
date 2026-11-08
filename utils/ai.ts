@@ -1,11 +1,38 @@
 import { Meal, Workout } from '@/db/database';
 import { UserData } from '@/store/useUserStore';
-import { GoogleGenAI } from '@google/genai';
+import { supabase } from '@/utils/supabase';
+import { Platform } from 'react-native';
 
-// Initialize the Gemini AI client
-// IMPORTANT: The user must define EXPO_PUBLIC_GEMINI_API_KEY in their .env file
-const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
-const ai = new GoogleGenAI({ apiKey });
+// Gemini is called through our own server endpoint (/api/gemini), which holds the API key.
+// The key is never shipped to the browser. On the website the endpoint is on the same domain;
+// in local development and in the native app EXPO_PUBLIC_API_BASE_URL points to it.
+const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
+const apiKey = Platform.OS === 'web' || API_BASE_URL ? 'proxy' : '';
+
+const callGeminiProxy = async (request: { model: string; contents: any; config?: any }): Promise<{ text: string }> => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(`${API_BASE_URL}/api/gemini`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session?.access_token || ''}`,
+        },
+        body: JSON.stringify(request),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        const err: any = new Error(`${res.status} ${body?.error || ''}`);
+        err.status = res.status;
+        throw err;
+    }
+    return { text: body?.text || '' };
+};
+
+const ai = {
+    models: {
+        generateContent: (request: { model: string; contents: any; config?: any }) => callGeminiProxy(request),
+    },
+};
 
 export type MealData = {
     name: string;
@@ -33,6 +60,7 @@ export type WorkoutPlan = {
     workoutData?: {
         name: string;
         duration_minutes: number;
+        distance_km?: number | null;
         calories_burned: number;
         summary: string;
     };
@@ -52,7 +80,7 @@ export const checkAndIncrementRateLimits = (): boolean => {
     const now = Date.now();
     rpmTimestamps = rpmTimestamps.filter(t => now - t < 60 * 1000);
     if (rpmTimestamps.length >= RPM_LIMIT) {
-        Alert.alert('Limit reached', `Limit reached: ${rpmTimestamps.length}/${RPM_LIMIT} (Minute). Please wait a moment or try again tomorrow.`);
+        Alert.alert('הגעת למגבלה', `נשלחו ${rpmTimestamps.length}/${RPM_LIMIT} בקשות ל-AI בדקה האחרונה. המתן רגע ונסה שוב.`);
         return false;
     }
     const state = useUserStore.getState();
@@ -60,9 +88,9 @@ export const checkAndIncrementRateLimits = (): boolean => {
     const daily = state.user?.aiDailyCount || { count: 0, dateStr: today };
     const currentCount = daily.dateStr === today ? daily.count : 0;
 
-    if (currentCount >= 450 && currentCount < DAILY_LIMIT) Alert.alert('Warning', 'You are reaching the daily requests limit.');
+    if (currentCount >= 450 && currentCount < DAILY_LIMIT) Alert.alert('שים לב', 'אתה מתקרב למגבלת הבקשות היומית ל-AI.');
     if (currentCount >= DAILY_LIMIT) {
-        Alert.alert('Limit reached', `Limit reached: ${currentCount}/${DAILY_LIMIT} (Daily). Please wait a moment or try again tomorrow.`);
+        Alert.alert('הגעת למגבלה', `נוצלו ${currentCount}/${DAILY_LIMIT} בקשות ל-AI היום. נסה שוב מחר.`);
         return false;
     }
     rpmTimestamps.push(now);
@@ -84,10 +112,12 @@ const FALLBACK_MODELS = [
 
 function extractJson(text: string) {
     if (!text) return '{}';
-    const jsonMatch = text.match(/\\(?:json)?\s*([\s\S]*?)\s*\\/);
+    const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
     if (jsonMatch) {
         return jsonMatch[1].trim();
     }
+    const trimmed = text.trim();
+    if (trimmed.startsWith('[')) return trimmed;
     const firstBrace = text.indexOf('{');
     const lastBrace = text.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
@@ -96,11 +126,11 @@ function extractJson(text: string) {
     return text;
 }
 
-export const generateContentWithFallback = async (requestBase: any): Promise<any> => {
+export const generateContentWithFallback = async (requestBase: any, timeoutMs: number = 15000): Promise<any> => {
     for (const model of FALLBACK_MODELS) {
         try {
             const request = { ...requestBase, model };
-            const result = await withTimeout(ai.models.generateContent(request));
+            const result = await withTimeout(ai.models.generateContent(request), timeoutMs);
             return { result, usedModel: model };
         } catch (e: any) {
             const isLimitErr = e?.status === 429 || String(e?.message).includes('429') || e?.status === 503 || String(e?.message).includes('503') || String(e?.message).includes('TIMEOUT') || String(e?.message).includes('404');
@@ -117,8 +147,8 @@ export const generateContentWithFallback = async (requestBase: any): Promise<any
 export const chatWithFallback = async (history: any, newMessageText: string, config: any): Promise<any> => {
     for (const model of FALLBACK_MODELS) {
         try {
-            const chat = ai.chats.create({ model, history, config });
-            const result = await withTimeout(chat.sendMessage({ message: newMessageText }));
+            const contents = [...(history || []), { role: 'user', parts: [{ text: newMessageText }] }];
+            const result = await withTimeout(ai.models.generateContent({ model, contents, config }));
             return { result, usedModel: model };
         } catch (e: any) {
             const isLimitErr = e?.status === 429 || String(e?.message).includes('429') || e?.status === 503 || String(e?.message).includes('503') || String(e?.message).includes('TIMEOUT') || String(e?.message).includes('404');
@@ -146,6 +176,13 @@ SPECIAL INSTRUCTIONS FOR PORTIONS AND SAVED RECIPES:
 SPECIAL INSTRUCTIONS FOR OCR AND IMAGES:
 - If the user uploads an image containing text (like a delivery menu from Wolt, or a physical nutritional label), you MUST activate your OCR capabilities. Meticulously read and extract all written text, ingredients, numbers, and weights to calculate the absolute most precise macros possible.
 
+NUTRITION LABELS (Israeli "סימון תזונתי" tables and any other label):
+- Israeli labels list values "ל-100 גרם" / "ל-100 מ"ל" and sometimes also "למנה". Read the exact numbers: אנרגיה (קלוריות), חלבונים, פחמימות, מתוכן סוכרים, שומנים, סיבים תזונתיים, נתרן (mg).
+- Scale to what the user actually ate. If the user states an amount (grams, units, "חצי חבילה", "2 פרוסות"), multiply accordingly using the label's per-100g or per-serving values and the package weight if visible.
+- If the user did NOT say how much they ate, log ONE serving if a serving size is printed; otherwise log 100 g. In the summary clearly state which amount you assumed and that the user can correct it.
+- The summary must quote the label values you read (e.g. "לפי התווית: 120 קק"ל ל-100 גרם; חושב עבור 150 גרם").
+- Red "סמלים אדומים" (high sugar / sodium / saturated fat) may be mentioned briefly in the summary.
+
 
 OUTPUT RULES:
 - If the user is just chatting or providing feedback that does NOT require logging a specific food, respond with standard text in Hebrew.
@@ -170,19 +207,90 @@ OUTPUT RULES:
 }
 
 ZERO HALLUCINATION RULE: If the user provides a completely vague food ("I ate a big thing"), do not log a meal. Return a textResponse asking for clarification (weight, ingredients).
+
+FORMAT RULES (STRICT):
+- ALWAYS return exactly ONE JSON object, never an array and never plain text. If the user lists several foods, combine them into ONE meal with summed values.
+- All numeric fields must be plain numbers (no units, no strings).
+- "textResponse", "name" and "summary" must ALWAYS be written in Hebrew. Never write English sentences to the user.
 `;
 
+// Strict output schema: forces the model to return a single well-formed object.
+// Every field is required (tested: with optional fields the model sometimes skips the numbers);
+// for a non-meal reply the model fills zeros / empty strings and we only use textResponse.
+const NUTRITION_FIELDS = ['isMeal', 'textResponse', 'name', 'calories', 'protein', 'fat', 'carbs', 'fiber', 'sodium', 'sugar', 'summary'];
+const NUTRITION_RESPONSE_SCHEMA = {
+    type: 'OBJECT',
+    properties: {
+        isMeal: { type: 'BOOLEAN' },
+        textResponse: { type: 'STRING' },
+        name: { type: 'STRING' },
+        calories: { type: 'NUMBER' },
+        protein: { type: 'NUMBER' },
+        fat: { type: 'NUMBER' },
+        carbs: { type: 'NUMBER' },
+        fiber: { type: 'NUMBER' },
+        sodium: { type: 'NUMBER' },
+        sugar: { type: 'NUMBER' },
+        summary: { type: 'STRING' },
+    },
+    required: NUTRITION_FIELDS,
+    propertyOrdering: NUTRITION_FIELDS,
+};
+
+const toNum = (v: any): number => {
+    if (typeof v === 'number' && isFinite(v)) return Math.round(v * 10) / 10;
+    const n = parseFloat(String(v ?? '').replace(',', '.').replace(/[^\d.\-]/g, ''));
+    return isFinite(n) ? Math.round(n * 10) / 10 : 0;
+};
+
+/**
+ * Turns whatever the model returned into either a meal or a Hebrew text reply.
+ * Handles the shapes that previously leaked raw JSON / English into the chat:
+ * arrays of foods, values nested under "meal"/"mealData", numbers as strings, etc.
+ */
+const normalizeNutritionPayload = (parsed: any): { meal?: MealData; text?: string } => {
+    if (Array.isArray(parsed)) {
+        const items = parsed.map(p => (p && (p.mealData || p.meal)) || p).filter(p => p && typeof p === 'object' && (p.calories !== undefined || p.protein !== undefined));
+        if (items.length === 0) return {};
+        const sum = (k: string) => toNum(items.reduce((acc, it) => acc + toNum(it[k]), 0));
+        return {
+            meal: {
+                name: items.map(i => i.name).filter(Boolean).join(' + ') || 'ארוחה',
+                calories: sum('calories'), protein: sum('protein'), fat: sum('fat'), carbs: sum('carbs'),
+                fiber: sum('fiber'), sodium: sum('sodium'), sugar: sum('sugar'),
+                summary: items.map(i => i.summary).filter(Boolean).join('\n'),
+            }
+        };
+    }
+    if (!parsed || typeof parsed !== 'object') return {};
+
+    const src = parsed.mealData || parsed.meal || parsed;
+    const looksLikeMeal = parsed.isMeal === true || (parsed.isMeal === undefined && src.calories !== undefined);
+    if (looksLikeMeal && (src.calories !== undefined || src.protein !== undefined)) {
+        return {
+            meal: {
+                name: src.name || 'ארוחה',
+                calories: toNum(src.calories), protein: toNum(src.protein), fat: toNum(src.fat), carbs: toNum(src.carbs),
+                fiber: toNum(src.fiber), sodium: toNum(src.sodium), sugar: toNum(src.sugar),
+                summary: src.summary || '',
+            }
+        };
+    }
+    const text = parsed.textResponse || parsed.text || parsed.message || parsed.response;
+    return typeof text === 'string' && text.trim() ? { text } : {};
+};
+
 export const generateNutritionResponse = async (history: { role: 'user' | 'model', parts: { text: string }[] }[], newMessageText: string, imageBase64?: string): Promise<AIResponse> => {
-    if (!apiKey) return { isMeal: false, textResponse: 'מפתח API חסר.' };
     if (!checkAndIncrementRateLimits()) return { isMeal: false, textResponse: 'הגעת למגבלת קצב. המתן מעט.' };
 
     try {
-        let parts: any[] = [{ text: newMessageText }];
+        let parts: any[] = [{ text: newMessageText || 'נתח את התמונה המצורפת.' }];
         if (imageBase64) {
+            const mimeMatch = imageBase64.match(/^data:([^;]+);base64,/);
             parts.push({
                 inlineData: {
                     data: imageBase64.split(',')[1] || imageBase64,
-                    mimeType: 'image/jpeg'
+                    mimeType: mimeMatch?.[1] || 'image/jpeg'
                 }
             });
         }
@@ -191,43 +299,49 @@ export const generateNutritionResponse = async (history: { role: 'user' | 'model
 
         const fallbackData = await generateContentWithFallback({
             contents: contents,
-            config: { responseMimeType: 'application/json', systemInstruction: SYSTEM_PROMPT,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: NUTRITION_RESPONSE_SCHEMA,
+                systemInstruction: SYSTEM_PROMPT,
                 temperature: 0.1,
                 thinkingConfig: { thinkingBudget: 1024 }
             }
-        });
+        }, imageBase64 ? 45000 : 20000);
         if (fallbackData.limitReached) return { isMeal: false, limitReached: true, textResponse: 'הגיע למגבלת השימוש.' };
         const result = fallbackData.result;
         const usedModel = fallbackData.usedModel;
         const responseText = result.text || '';
 
-        let rawJsonStr = extractJson(responseText);
+        let normalized: { meal?: MealData; text?: string } = {};
         try {
-            const parsed = JSON.parse(rawJsonStr);
-            if (parsed.isMeal) {
-                return {
-                    isMeal: true,
-                    mealData: {
-                        name: parsed.name,
-                        calories: parsed.calories,
-                        protein: parsed.protein,
-                        fat: parsed.fat,
-                        carbs: parsed.carbs,
-                        fiber: parsed.fiber || 0,
-                        sodium: parsed.sodium || 0,
-                        sugar: parsed.sugar || 0,
-                        summary: parsed.summary
-                    },
-                    usedModel: usedModel
-                };
-            } else {
-                return { isMeal: false, textResponse: parsed.textResponse || 'לא הבנתי את התשובה.', usedModel: usedModel };
-            }
+            normalized = normalizeNutritionPayload(JSON.parse(extractJson(responseText)));
         } catch (jsonError) {
-            return { isMeal: false, textResponse: responseText };
+            console.warn('[AI] Unparseable nutrition response', responseText.slice(0, 300));
         }
+
+        const m = normalized.meal;
+        if (m && (m.calories > 0 || m.protein > 0 || m.carbs > 0 || m.fat > 0)) {
+            return { isMeal: true, mealData: m, usedModel };
+        }
+        if (m) {
+            // A "meal" without any numbers is not usable: never show a card with zeros
+            console.warn('[AI] Meal response without nutrition values', responseText.slice(0, 300));
+            return { isMeal: false, textResponse: 'לא הצלחתי לחשב ערכים לארוחה הזו. אפשר לפרט כמויות או לנסות שוב?', usedModel };
+        }
+        if (normalized.text) {
+            return { isMeal: false, textResponse: normalized.text, usedModel };
+        }
+        // Never show raw model output (JSON / English) to the user
+        const trimmed = responseText.trim();
+        const looksRaw = !trimmed || /^[\[{]/.test(trimmed) || !/[֐-׿]/.test(trimmed);
+        return {
+            isMeal: false,
+            textResponse: looksRaw ? 'לא הצלחתי לנתח את זה כמו שצריך. אפשר לנסות לנסח שוב או לפרט כמויות?' : trimmed,
+            usedModel
+        };
     } catch (e: any) {
-        return { isMeal: false, textResponse: 'שגיאת AI.' };
+        console.error('[AI] Nutrition request failed', e);
+        return { isMeal: false, textResponse: 'שגיאת AI. נסה שוב בעוד רגע.' };
     }
 };
 ;
@@ -313,6 +427,13 @@ Formula: Calories Burned = METs × Weight (kg) × (Duration in minutes / 60)
 2. EXTREMELY IMPORTANT: Understand the nature of the workout. If it is a "Gym" or "Resistance Training" workout, it inherently includes rests and breaks between sets. DO NOT calculate it as non-stop lifting. Use a lower overall average MET (e.g., 3.0-4.0) to account for these natural breaks. 
 3. If it is continuous cardio (e.g., running, cycling), use the appropriate continuous MET (e.g., 7.0-10.0).
 4. Calculate using the provided exact Weight and Duration.
+5. DISTANCE IS CRITICAL FOR WALKING / RUNNING / CYCLING: If a distance is provided, you MUST use it. Compute the actual speed (km/h) = distance / (duration/60) and the pace (min/km), and choose the MET from the real speed, NOT from a generic activity value:
+   - Walking (MET is GROSS, choose by exact speed): <3.2 km/h ≈ 2.8 | 3.2-4.4 ≈ 3.0-3.5 | 4.5-5.5 ≈ 3.8-4.3 | 5.6-6.9 ≈ 5.0 | 7.0-7.9 ≈ 6.3 | 8.0+ (race walking) ≈ 8.0
+   - Running: 8 km/h ≈ 8.3 | 9.7 ≈ 9.8 | 11.3 ≈ 11.0 | 12.9 ≈ 11.8 | 14.5 ≈ 12.8 | 16+ ≈ 14.5+
+   - Cycling: <16 km/h ≈ 4.0-5.8 | 16-19 ≈ 6.8 | 19-22 ≈ 8.0 | 22-25.5 ≈ 10.0 | >25.5 ≈ 12.0
+   MANDATORY sanity check: the final calories MUST fall within the energy-per-distance range — walking 0.5-0.8 kcal per kg per km, running 0.9-1.05 kcal per kg per km, cycling 0.25-0.45 kcal per kg per km. If your MET result falls outside it, lower/raise the MET until it fits. If the speed is physically implausible, say so in the summary and rely on the distance.
+   The Hebrew summary MUST mention the distance, the computed pace/speed and the MET you chose.
+6. If no distance is provided for these types, estimate by duration and say in the summary that the estimate is time-based because no distance was given.
 
 Output Requirement:
 Return ONLY a strictly formatted JSON object. Do not wrap in markdown blocks like \`\`\`json.
@@ -322,14 +443,25 @@ Return ONLY a strictly formatted JSON object. Do not wrap in markdown blocks lik
 }
 `;
 
-export const estimateTemplateWorkout = async (user: UserData, templateName: string, templateDescription: string | null, userNotes: string | null, durationMinutes: number) => {
-    if (!apiKey) return null;
+export const estimateTemplateWorkout = async (
+    user: UserData,
+    templateName: string,
+    templateDescription: string | null,
+    userNotes: string | null,
+    durationMinutes: number,
+    extra?: { type?: string; distanceKm?: number | null }
+) => {
     if (!checkAndIncrementRateLimits()) return null;
 
     try {
-        const promptMsg = `User Stats: ${user.weight}kg, ${user.height}cm, Age ${user.age}, ${user.gender}. 
+        const distanceLine = extra?.distanceKm
+            ? `Distance: ${extra.distanceKm} km (speed ${(extra.distanceKm / (durationMinutes / 60)).toFixed(2)} km/h, pace ${(durationMinutes / extra.distanceKm).toFixed(2)} min/km)`
+            : 'Distance: not provided';
+        const promptMsg = `User Stats: ${user.weight}kg, ${user.height}cm, Age ${user.age}, ${user.gender}.
 Workout Name: ${templateName}
+Workout Type: ${extra?.type || 'unknown'}
 Duration: ${durationMinutes} mins
+${distanceLine}
 Template Description/Exercises: ${templateDescription || 'None'}
 User Notes: ${userNotes || 'None'}`;
         const fallbackData = await generateContentWithFallback({
@@ -353,6 +485,14 @@ You MUST formulate exact calories burned using MET (Metabolic Equivalent of Task
 CRITICAL WORKOUT LOGIC:
 Understand the nature of the workout. If it is a "Gym" or "Resistance Training" workout, it inherently includes rests and breaks between sets. DO NOT calculate it as non-stop lifting. Use a lower overall average MET (e.g., 3.0-4.0) to account for these natural breaks. Only use high continuous METs (7.0+) for continuous cardio like running.
 
+DISTANCE LOGIC (walking / running / cycling / swimming):
+If the user gives a distance, you MUST use it. Compute speed (km/h) = distance / (duration/60) and pace (min/km), and pick the MET by the REAL speed, not a generic activity value:
+- Walking (MET is GROSS, choose by exact speed): <3.2 km/h ≈ 2.8 | 3.2-4.4 ≈ 3.0-3.5 | 4.5-5.5 ≈ 3.8-4.3 | 5.6-6.9 ≈ 5.0 | 7.0-7.9 ≈ 6.3 | 8.0+ (race walking) ≈ 8.0
+- Running: 8 km/h ≈ 8.3 | 9.7 ≈ 9.8 | 11.3 ≈ 11.0 | 12.9 ≈ 11.8 | 14.5 ≈ 12.8 | 16+ ≈ 14.5+
+- Cycling: <16 km/h ≈ 4.0-5.8 | 16-19 ≈ 6.8 | 19-22 ≈ 8.0 | 22-25.5 ≈ 10.0 | >25.5 ≈ 12.0
+MANDATORY sanity check: the final calories MUST fall within the energy-per-distance range — walking 0.5-0.8 kcal per kg per km, running 0.9-1.05 kcal per kg per km, cycling 0.25-0.45 kcal per kg per km. If your MET result falls outside it, lower/raise the MET until it fits. If the speed is physically implausible, say so in the summary and rely on the distance.
+The Hebrew summary MUST mention the distance, the computed pace/speed and the MET used. Put the distance in "distance_km" (null if none was given).
+
 OUTPUT RULES:
 - If the user is just chatting, return standard Hebrew text wrapped in JSON.
 - If the user logs an actual workout, return ONLY a strict JSON object modeling the run, gym, swim, etc.
@@ -362,8 +502,9 @@ JSON SCHEMA REQUIREMENT:
   "isWorkout": true,
   "name": "שם האימון (למשל: ריצה קלה בקצב מתון)",
   "duration_minutes": 45,
+  "distance_km": 7.5,
   "calories_burned": 320,
-  "summary": "הסבר קצר: חישוב בוסס על ריצה של 45 דק עבור מתאמן במשקל 70 ק״ג (MET ~8)."
+  "summary": "הסבר קצר: ריצה של 7.5 ק״מ ב-45 דק' (10 קמ״ש, קצב 6:00 לק״מ) עבור מתאמן במשקל 70 ק״ג (MET ~9.8)."
 }
 
 NON-WORKOUT CHAT JSON:
@@ -376,8 +517,7 @@ ZERO HALLUCINATION: If the user says "התאמנתי" without time, politely rej
 `;
 
 export const generateWorkoutResponse = async (history: { role: 'user' | 'model', parts: { text: string }[] }[], newMessageText: string, userWeightKg: number): Promise<WorkoutPlan> => {
-    if (!apiKey) return { isWorkout: false, textResponse: 'Missing API key.' };
-    if (!checkAndIncrementRateLimits()) return { isWorkout: false, textResponse: 'Rate limit reached.' };
+        if (!checkAndIncrementRateLimits()) return { isWorkout: false, textResponse: 'הגעת למגבלת קצב. המתן מעט.' };
 
     try {
         const enhancedMessageText = `[SYSTEM CONTEXT: The user weighs ${userWeightKg}kg. Use this EXACT weight to calculate MET calories burned = MET * ${userWeightKg} * (duration / 60)].\n\nUser Message: ${newMessageText}`;
@@ -398,6 +538,7 @@ export const generateWorkoutResponse = async (history: { role: 'user' | 'model',
                 workoutData: {
                     name: dataTarget.name || 'אימון כללי',
                     duration_minutes: dataTarget.duration_minutes || 0,
+                    distance_km: typeof dataTarget.distance_km === 'number' && dataTarget.distance_km > 0 ? dataTarget.distance_km : null,
                     calories_burned: dataTarget.calories_burned || 0,
                     summary: dataTarget.summary || 'אימון נרשם בהצלחה.'
                 },
@@ -527,6 +668,20 @@ STRICT FORMAT RULES (CRITICAL):
 - STRUCTURE AS A LIST: Provide the explanation text as a list of clear, summarized bullet lines separated by the newline character.
 - NO MARKDOWN SYMBOLS: Do NOT use any asterisks (*), hashtags (#), or bold tags. Clean text only.
 - TONE & REALISM: Be a supportive and realistic coach. Look at the bright side and the big picture. DO NOT be evil or harsh. Do not make the user feel bad for eating or resting. Take their stated workout frequency into account (e.g., resting is normal if they only aim for 2-3 times a week). Provide constructive, balanced advice. Use emojis (e.g. 👏, 🥗, 💪, ✨).
+
+WORKOUT JUDGMENT (IMPORTANT):
+- You receive each workout with its duration, calories, distance/pace when available, and a pre-classification: "אימון משמעותי" (a real training session) or "פעילות קלה" (light activity).
+- Use real judgment, like a coach. A 15-minute easy walk is NOT the user's workout for the day: acknowledge it warmly ("יפה שזזת", "כל תנועה טובה") but do NOT count it toward the weekly workout goal and do NOT praise it as if it were a full workout.
+- A substantial session (e.g. a gym workout, a run, a long or brisk walk, a long ride) deserves real, specific praise that mentions what was done (distance, pace, duration).
+- Relate to the weekly goal using ONLY the significant workouts: e.g. "זה האימון השני השבוע מתוך 3-4 – בדרך הנכונה". If the week is behind the goal, encourage gently without guilt.
+- Never invent workouts or numbers that were not provided.
+`;
+
+const FINAL_DAY_SUMMARY_ADDENDUM = `
+THIS IS A FINAL SUMMARY OF A DAY THAT HAS ALREADY ENDED (at the user's day-reset time).
+- Write in past tense, as a summary of the whole day. Do NOT give advice about "the rest of the day" and do NOT mention the current time.
+- The score you receive is the FINAL score of that day. Your explanation must be consistent with it (a high score = a good day, a low score = explain gently why).
+- End with one short, practical takeaway for the next day.
 `;
 
 const RECOMMENDATIONS_PROMPT = `
@@ -538,6 +693,7 @@ TONE & REALISM RULES (CRITICAL):
 - BE CONSTRUCTIVE AND POSITIVE: Do not be overly harsh or "evil". Look at the bright side and big picture. Support the user through their journey, give realistic advice, and DO NOT make them feel bad for eating or resting.
 - MATCH THEIR LIFESTYLE: If the user's setting says they train 2-3 times a week, do NOT expect them to train 5 times a week! Respect their stated workout frequency and goal. Be highly accurate to their specific situation.
 - If they are off-track, provide gentle, realistic adjustments instead of scolding.
+- WORKOUTS: Judge each workout realistically. A short easy activity (e.g. a 15-minute walk) is nice movement but NOT a full workout and does not fulfil the weekly workout goal. Only substantial sessions count toward the goal.
 
 Output Requirement:
 Return ONLY a strictly formatted JSON object. Do not wrap in markdown blocks like \`\`\`json.
@@ -547,27 +703,35 @@ Return ONLY a strictly formatted JSON object. Do not wrap in markdown blocks lik
 }
 `;
 
-export const generateDailyScoreExplanation = async (score: any, consumptionStr: string, isWorkoutLogged: boolean, userGoal?: string, loggedFoodsStr?: string, pastDaysContextStr?: string): Promise<string | null> => {
-    if (!apiKey) return null;
+export const generateDailyScoreExplanation = async (
+    score: any,
+    consumptionStr: string,
+    isWorkoutLogged: boolean,
+    userGoal?: string,
+    loggedFoodsStr?: string,
+    pastDaysContextStr?: string,
+    extra: { workoutsDetailStr?: string; isFinalSummary?: boolean } = {}
+): Promise<string | null> => {
     if (!checkAndIncrementRateLimits()) return null;
     try {
         const now = new Date();
         const currentTimeStr = now.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
-        
+
         const fullPrompt = `
-Current Time: ${currentTimeStr}
+${extra.isFinalSummary ? 'Day status: FINISHED (final summary)' : `Current Time: ${currentTimeStr}`}
 Score: ${JSON.stringify(score)}
 Goal: ${userGoal || 'Not set'}
 Consumption: ${consumptionStr}
 Workout Logged Today: ${isWorkoutLogged ? 'Yes' : 'No'}
+Workouts Detail: ${extra.workoutsDetailStr || 'None'}
 Logged Foods: ${loggedFoodsStr || 'None'}
-Past 3 Days Context: ${pastDaysContextStr || 'No past context available.'}
+Past Days & Weekly Context: ${pastDaysContextStr || 'No past context available.'}
 `;
 
         const fallbackData = await generateContentWithFallback({
             contents: fullPrompt,
-            config: { 
-                systemInstruction: SCORE_EXPLANATION_PROMPT,
+            config: {
+                systemInstruction: SCORE_EXPLANATION_PROMPT + (extra.isFinalSummary ? FINAL_DAY_SUMMARY_ADDENDUM : ''),
                 temperature: 0.1,
                 thinkingConfig: { thinkingBudget: 1024 } 
             }

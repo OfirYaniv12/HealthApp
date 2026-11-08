@@ -1,9 +1,8 @@
 import { AlertManager as Alert } from '@/components/GlobalAlert';
-import { addWorkout, addWorkoutCategory, addWorkoutTemplate, deleteWorkoutCategory, deleteWorkoutTemplate, getWorkoutCategories, getWorkoutTemplates, updateWorkoutTemplateExercises, updateWorkoutTemplateLastPerformed, WorkoutCategory, WorkoutTemplate } from '@/db/database';
+import { addWorkoutCategory, addWorkoutTemplate, deleteWorkoutCategory, deleteWorkoutTemplate, getWorkoutCategories, getWorkoutTemplates, updateWorkoutTemplate, WorkoutCategory, WorkoutTemplate } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
 import { generateWorkoutSummary } from '@/utils/ai';
-import { estimateWorkoutCaloriesDynamic } from '@/utils/ai_fixed';
-import { triggerScoreExplanationUpdate } from '@/utils/scoreUpdater';
+import { DISTANCE_TYPES, getFixedDuration, logTemplateWorkout, parseTemplateMeta, WORKOUT_TYPE_LABELS } from '@/utils/workoutTemplates';
 import { Ionicons } from '@expo/vector-icons';
 import { DrawerActions, useNavigation } from '@react-navigation/native';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -39,6 +38,8 @@ export default function MyWorkoutsScreen() {
     const [isLogModalVisible, setLogModalVisible] = useState(false);
     const [logDuration, setLogDuration] = useState('');
     const [logTemplate, setLogTemplate] = useState<WorkoutTemplate | null>(null);
+    const [logDistance, setLogDistance] = useState('');
+    const [editingTemplate, setEditingTemplate] = useState<WorkoutTemplate | null>(null);
 
     const loadData = async () => {
         try {
@@ -72,26 +73,49 @@ export default function MyWorkoutsScreen() {
         }
     };
 
-    // Template Actions
-    const handleCreateTemplate = async (name: string, categoryId: number, flattenedExercises: Exercise[], descriptionStr?: string | null) => {
+    // Template Actions (create or edit)
+    const handleSaveTemplate = async (name: string, categoryId: number, flattenedExercises: Exercise[], descriptionStr?: string | null) => {
         setIsGenerating(true);
         try {
-            const summary = await generateWorkoutSummary(flattenedExercises);
             const exercisesJson = JSON.stringify(flattenedExercises);
-            await addWorkoutTemplate({
-                name: name.trim(),
-                category_id: categoryId,
-                exercises: exercisesJson,
-                summary: summary || 'אימון שהוקם על ידי המשתמש',
-                description: descriptionStr || null
-            });
+            if (editingTemplate) {
+                // Only ask the AI for a new summary if the exercises themselves changed
+                const strip = (json: string | null | undefined) => {
+                    try { return JSON.stringify((JSON.parse(json || '[]') as any[]).map(e => [e.muscleGroup, e.name, e.sets, e.reps, e.weight, e.notes || ''])); }
+                    catch { return json || ''; }
+                };
+                const exercisesChanged = strip(exercisesJson) !== strip(editingTemplate.exercises);
+                const summary = exercisesChanged ? await generateWorkoutSummary(flattenedExercises) : null;
+                await updateWorkoutTemplate(editingTemplate.id!, {
+                    name: name.trim(),
+                    category_id: categoryId,
+                    exercises: exercisesJson,
+                    description: descriptionStr || null,
+                    ...(summary ? { summary } : {}),
+                });
+            } else {
+                const summary = await generateWorkoutSummary(flattenedExercises);
+                await addWorkoutTemplate({
+                    name: name.trim(),
+                    category_id: categoryId,
+                    exercises: exercisesJson,
+                    summary: summary || 'אימון שהוקם על ידי המשתמש',
+                    description: descriptionStr || null
+                });
+            }
             setTemplateModalVisible(false);
+            setEditingTemplate(null);
             loadData();
         } catch (e) {
-            Alert.alert('שגיאה', 'אירעה שגיאה בשמירת התבנית.');
+            Alert.alert('שגיאה', 'אירעה שגיאה בשמירת האימון.');
         } finally {
             setIsGenerating(false);
         }
+    };
+
+    const openEditTemplate = (template: WorkoutTemplate) => {
+        setEditingTemplate(template);
+        setTemplateModalVisible(true);
     };
 
     const handleDeleteTemplate = (id: number) => {
@@ -100,51 +124,23 @@ export default function MyWorkoutsScreen() {
             { text: 'מחק', style: 'destructive', onPress: async () => { await deleteWorkoutTemplate(id); loadData(); } }
         ]);
     };
-    const executeLogWorkout = async (durStr: string, template: WorkoutTemplate) => {
+    const executeLogWorkout = async (durationMinutes: number, template: WorkoutTemplate, distanceText?: string) => {
+        if (!user) return;
         setIsGenerating(true);
         try {
-            const dur = parseInt(durStr);
-            const exercisesJson = template.exercises || '[]';
-            
-            const metrics = {
-                weight: user?.weight || 74,
-                height: user?.height || 175,
-                age: user?.age || 30,
-                gender: user?.gender || 'זכר',
-                goal: user?.goal
-            };
-
-            const dynamicResult = await estimateWorkoutCaloriesDynamic(metrics as any, dur, exercisesJson);
-            let calBurned = 0;
-            let aiSummary = '';
-
-            if (dynamicResult) {
-                calBurned = dynamicResult.calories_burned;
-                aiSummary = dynamicResult.summary;
-            } else {
-                calBurned = Math.round(8 * metrics.weight * (dur / 60)); 
-            }
-
-            await addWorkout({
-                name: template.name,
-                duration_minutes: dur,
-                calories_burned: calBurned,
-                exercises: template.exercises,
-                timestamp: new Date().toISOString()
+            const { calBurned, summary } = await logTemplateWorkout({
+                user,
+                template,
+                durationMinutes,
+                distanceText: distanceText || null,
             });
-
-            await updateWorkoutTemplateLastPerformed(template.id!, new Date().toISOString());
-            triggerScoreExplanationUpdate();
 
             setLogModalVisible(false);
             setLogDuration('');
+            setLogDistance('');
             loadData();
 
-            if (aiSummary) {
-                Alert.alert('אימון נרשם בהצלחה!', `שרפת כ-${calBurned} קלוריות.\n\n${aiSummary}`);
-            } else {
-                Alert.alert('אימון נרשם בהצלחה!', `שרפת כ-${calBurned} קלוריות.`);
-            }
+            Alert.alert('אימון נרשם בהצלחה!', `שרפת כ-${calBurned} קלוריות.${summary ? `\n\n${summary}` : ''}`);
         } catch (e) {
             Alert.alert('שגיאה', 'אירעה שגיאה. נסה שוב.');
         } finally {
@@ -152,9 +148,29 @@ export default function MyWorkoutsScreen() {
         }
     };
 
+    const startLogWorkout = (template: WorkoutTemplate) => {
+        const meta = parseTemplateMeta(template);
+        const fixed = getFixedDuration(meta);
+        const needsDistance = DISTANCE_TYPES.includes(meta.type) && !meta.distance;
+        if (fixed && !needsDistance) {
+            executeLogWorkout(fixed, template, meta.distance);
+            return;
+        }
+        setLogTemplate(template);
+        setLogDuration(fixed ? String(fixed) : '');
+        setLogDistance(meta.distance || '');
+        setLogModalVisible(true);
+    };
+
+    const logMeta = logTemplate ? parseTemplateMeta(logTemplate) : null;
+    const logFixedDuration = logMeta ? getFixedDuration(logMeta) : null;
+    const logUsesDistance = logMeta ? DISTANCE_TYPES.includes(logMeta.type) : false;
+
     const handleLogWorkout = async () => {
-        if (!logDuration || !logTemplate) { Alert.alert('שגיאה', 'הזן משך אימון'); return; }
-        await executeLogWorkout(logDuration, logTemplate);
+        if (!logTemplate) return;
+        const dur = logFixedDuration ?? Number(logDuration);
+        if (!dur || isNaN(dur) || dur <= 0) { Alert.alert('שגיאה', 'הזן משך אימון'); return; }
+        await executeLogWorkout(dur, logTemplate, logDistance.trim());
     };
 
     const toggleFilters = () => {
@@ -171,15 +187,25 @@ export default function MyWorkoutsScreen() {
     const renderTemplate = ({ item }: { item: WorkoutTemplate }) => {
         const isExpanded = expandedId === item.id;
         const lastPerformedStr = item.last_performed_date ? new Date(item.last_performed_date).toLocaleDateString('he-IL') : 'טרם בוצע';
+        const meta = parseTemplateMeta(item);
+        const fixedDuration = getFixedDuration(meta);
+        const isGym = meta.type === 'gym';
 
         return (
             <TouchableOpacity style={styles.card} onPress={() => setExpandedId(isExpanded ? null : item.id!)} activeOpacity={0.8}>
                 <View style={[styles.cardHeader, { flexDirection: 'row-reverse' }]}>
                     <View style={styles.cardHeaderCenter}>
                         <Text style={styles.templateName}>{item.name}</Text>
-                        <Text style={styles.templateCategory}>{item.category_name || 'כללי'}</Text>
+                        <Text style={styles.templateCategory}>
+                            {item.category_name || 'כללי'} · {WORKOUT_TYPE_LABELS[meta.type]}
+                            {fixedDuration ? ` · ${fixedDuration} דק'` : ''}
+                            {meta.distance && DISTANCE_TYPES.includes(meta.type) ? ` · ${meta.distance}` : ''}
+                        </Text>
                     </View>
                     <View style={{ flexDirection: 'row-reverse', alignItems: 'center', gap: 12 }}>
+                        <TouchableOpacity onPress={(e) => { e.stopPropagation(); openEditTemplate(item); }} style={{ padding: 4 }}>
+                            <Ionicons name="create-outline" size={20} color="#3b82f6" />
+                        </TouchableOpacity>
                         <TouchableOpacity onPress={(e) => { e.stopPropagation(); handleDeleteTemplate(item.id!); }} style={{ padding: 4 }}>
                             <Ionicons name="trash-outline" size={20} color="#ef4444" />
                         </TouchableOpacity>
@@ -202,33 +228,17 @@ export default function MyWorkoutsScreen() {
                         )}
 
                         <View style={{ flexDirection: 'row-reverse', gap: 12, marginTop: 16 }}>
-                            <TouchableOpacity style={[styles.actionBtnPrimary, { flex: 1, justifyContent: 'center' }]} onPress={() => { 
-                                let reqTime = true;
-                                let preDur = '';
-                                try {
-                                    if (item.description && item.description.startsWith('{')) {
-                                        const md = JSON.parse(item.description);
-                                        if (md.requireTimeOnLog === false) {
-                                            reqTime = false;
-                                            preDur = md.presetDuration;
-                                        }
-                                    }
-                                } catch(e){}
-
-                                if (!reqTime) {
-                                    executeLogWorkout(preDur || '30', item);
-                                } else {
-                                    setLogTemplate(item); 
-                                    setLogModalVisible(true); 
-                                }
-                            }}>
+                            <TouchableOpacity style={[styles.actionBtnPrimary, { flex: 1, justifyContent: 'center' }]} disabled={isGenerating} onPress={() => startLogWorkout(item)}>
                                 <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
                                 <Text style={styles.actionBtnTextPrimary}>רשום אימון</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={[styles.actionBtnSecondary, { flex: 1, justifyContent: 'center' }]} onPress={() => router.push({ pathname: '/workout-tracking' as any, params: { id: item.id } })}>
-                                <Ionicons name="analytics-outline" size={18} color="#3b82f6" />
-                                <Text style={styles.actionBtnTextSecondary}>מעקב</Text>
-                            </TouchableOpacity>
+                            {/* Live tracking (sets / reps / weights) only makes sense for gym workouts */}
+                            {isGym && (
+                                <TouchableOpacity style={[styles.actionBtnSecondary, { flex: 1, justifyContent: 'center' }]} onPress={() => router.push({ pathname: '/workout-tracking' as any, params: { id: item.id } })}>
+                                    <Ionicons name="analytics-outline" size={18} color="#3b82f6" />
+                                    <Text style={styles.actionBtnTextSecondary}>מעקב</Text>
+                                </TouchableOpacity>
+                            )}
                         </View>
                     </View>
                 )}
@@ -258,7 +268,7 @@ export default function MyWorkoutsScreen() {
                         <Ionicons name="settings-outline" size={18} color="#3b82f6" />
                     </TouchableOpacity>
                 </View>
-                <TouchableOpacity style={styles.actionBtnPrimary} onPress={() => setTemplateModalVisible(true)}>
+                <TouchableOpacity style={styles.actionBtnPrimary} onPress={() => { setEditingTemplate(null); setTemplateModalVisible(true); }}>
                     <Ionicons name="add" size={18} color="#fff" />
                     <Text style={styles.actionBtnTextPrimary}>צור אימון</Text>
                 </TouchableOpacity>
@@ -303,9 +313,10 @@ export default function MyWorkoutsScreen() {
             <WorkoutForm 
                 visible={isTemplateModalVisible} 
                 categories={categories} 
-                isGenerating={isGenerating} 
-                onClose={() => setTemplateModalVisible(false)} 
-                onSave={handleCreateTemplate} 
+                isGenerating={isGenerating}
+                onClose={() => { setTemplateModalVisible(false); setEditingTemplate(null); }}
+                onSave={handleSaveTemplate}
+                initialTemplate={editingTemplate}
             />
 
             {/* Modal: Create Category */}
@@ -353,8 +364,20 @@ export default function MyWorkoutsScreen() {
                 <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
                         <Text style={styles.modalTitle}>רישום אימון "{logTemplate?.name}"</Text>
-                        <Text style={styles.inputLabel}>כמה זמן לקח האימון בדקות?</Text>
-                        <TextInput style={styles.modalInput} keyboardType="decimal-pad" placeholder="למשל: 45" value={logDuration} onChangeText={setLogDuration} autoFocus />
+                        {logFixedDuration ? (
+                            <Text style={styles.inputLabel}>זמן קבוע: {logFixedDuration} דקות</Text>
+                        ) : (
+                            <>
+                                <Text style={styles.inputLabel}>כמה זמן לקח האימון בדקות?</Text>
+                                <TextInput style={styles.modalInput} keyboardType="decimal-pad" placeholder="למשל: 45" value={logDuration} onChangeText={setLogDuration} autoFocus />
+                            </>
+                        )}
+                        {logUsesDistance && (
+                            <>
+                                <Text style={styles.inputLabel}>מה היה המרחק?</Text>
+                                <TextInput style={styles.modalInput} placeholder='למשל: 5 ק"מ או 800 מטר' value={logDistance} onChangeText={setLogDistance} />
+                            </>
+                        )}
                         <View style={styles.modalActions}>
                             <TouchableOpacity style={styles.modalCancel} onPress={() => !isGenerating && setLogModalVisible(false)}><Text style={styles.modalCancelText}>ביטול</Text></TouchableOpacity>
                             <TouchableOpacity style={styles.modalSubmit} onPress={handleLogWorkout} disabled={isGenerating}>

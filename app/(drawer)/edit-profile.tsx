@@ -1,6 +1,6 @@
 import { AlertManager as Alert } from '@/components/GlobalAlert';
 import { useEffect } from 'react';
-import { supabase } from '@/utils/supabase';
+import { saveUserProfile } from '@/db/database';
 import { UserData, useUserStore } from '@/store/useUserStore';
 import { generatePersonalizedPlan } from '@/utils/ai';
 import { ActivityLevel, BodyType, GenderType, GoalType, TargetPace, WorkoutFrequency } from '@/utils/calculators';
@@ -105,6 +105,7 @@ export default function EditProfileScreen() {
         setIsGenerating(true);
 
         const updatedUser: UserData = {
+            ...(user || {} as UserData), // keep settings (day-reset time, tracked nutrients, AI caches)
             id: user?.id || new Date().getTime().toString(),
             full_name: fullName,
             gender,
@@ -128,15 +129,16 @@ export default function EditProfileScreen() {
                 throw new Error('AI Generation failed');
             }
         } catch (e) { console.error('AI Error:', e); }
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user?.id) {
-            await supabase.from('users').upsert({
-                id: session.user.id, full_name: updatedUser.full_name, gender: updatedUser.gender, age: updatedUser.age, height: updatedUser.height, weight: updatedUser.weight, goal: updatedUser.goal, activity_level: updatedUser.activity_level, workout_frequency: updatedUser.workout_frequency, body_type: updatedUser.body_type, target_pace: updatedUser.target_pace || null, daily_targets: updatedUser.daily_targets
-            });
-        }
+        const saveError = await saveUserProfile(updatedUser);
         setIsGenerating(false);
 
         setUser(updatedUser);
+        if (saveError) {
+            Alert.alert('נשמר רק במכשיר הזה', 'הנתונים עודכנו באפליקציה, אבל השמירה בענן נכשלה:\n' + saveError, [
+                { text: 'חזרה לראשי', onPress: () => router.push('/(drawer)' as any) }
+            ]);
+            return;
+        }
         Alert.alert('בהצלחה', 'הנתונים שלך עודכנו ושמורים במערכת.', [
             { text: 'חזרה לראשי', onPress: () => router.push('/(drawer)' as any) }
         ]);

@@ -1,6 +1,7 @@
-import { WorkoutCategory } from '@/db/database';
+import { WorkoutCategory, WorkoutTemplate } from '@/db/database';
+import { parseTemplateMeta } from '@/utils/workoutTemplates';
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 export interface Exercise {
@@ -24,6 +25,7 @@ interface MuscleGroupBlock {
         reps: string;
         weight: string;
         notes?: string;
+        status?: Exercise['status'];
     }[];
 }
 
@@ -33,9 +35,13 @@ interface WorkoutFormProps {
     isGenerating: boolean;
     onClose: () => void;
     onSave: (name: string, categoryId: number, flattenedExercises: Exercise[], description?: string | null) => Promise<void>;
+    /** When set, the form opens in edit mode pre-filled with this template. */
+    initialTemplate?: WorkoutTemplate | null;
 }
 
-export default function WorkoutForm({ visible, categories, isGenerating, onClose, onSave }: WorkoutFormProps) {
+export default function WorkoutForm({ visible, categories, isGenerating, onClose, onSave, initialTemplate }: WorkoutFormProps) {
+    const isEditMode = !!initialTemplate;
+    const wasEditingRef = useRef(false);
     const [templateName, setTemplateName] = useState('');
     const [templateCategoryId, setTemplateCategoryId] = useState<number | null>(null);
     const [blocks, setBlocks] = useState<MuscleGroupBlock[]>([
@@ -46,6 +52,60 @@ export default function WorkoutForm({ visible, categories, isGenerating, onClose
     const [presetDuration, setPresetDuration] = useState('');
     const [distance, setDistance] = useState('');
     const [notes, setNotes] = useState('');
+
+    const clearFields = () => {
+        setTemplateName('');
+        setTemplateCategoryId(null);
+        setBlocks([{ id: Date.now().toString(), muscleGroup: '', exercises: [] }]);
+        setWorkoutType('gym');
+        setRequireTimeOnLog(true);
+        setPresetDuration('');
+        setDistance('');
+        setNotes('');
+    };
+
+    // Load the template into the form when opening in edit mode
+    useEffect(() => {
+        if (!visible) return;
+        if (initialTemplate) {
+            const meta = parseTemplateMeta(initialTemplate);
+            setTemplateName(initialTemplate.name || '');
+            setTemplateCategoryId(initialTemplate.category_id ?? null);
+            setWorkoutType(meta.type);
+            setRequireTimeOnLog(meta.requireTimeOnLog);
+            setPresetDuration(meta.presetDuration || '');
+            setDistance(meta.distance || '');
+            setNotes(meta.notes || '');
+
+            let loadedBlocks: MuscleGroupBlock[] = [];
+            if (meta.type === 'gym') {
+                try {
+                    const exs: Exercise[] = JSON.parse(initialTemplate.exercises || '[]');
+                    (Array.isArray(exs) ? exs : []).forEach((ex, i) => {
+                        const group = ex.muscleGroup || 'כללי';
+                        let block = loadedBlocks.find(b => b.muscleGroup === group);
+                        if (!block) {
+                            block = { id: `b${i}-${Date.now()}`, muscleGroup: group, exercises: [] };
+                            loadedBlocks.push(block);
+                        }
+                        block.exercises.push({
+                            id: ex.id || `e${i}-${Date.now()}`,
+                            name: ex.name || '',
+                            sets: ex.sets || '',
+                            reps: ex.reps || '',
+                            weight: ex.weight || '',
+                            notes: ex.notes || '',
+                            status: ex.status,
+                        });
+                    });
+                } catch (e) { }
+            }
+            setBlocks(loadedBlocks.length > 0 ? loadedBlocks : [{ id: Date.now().toString(), muscleGroup: '', exercises: [] }]);
+        } else if (wasEditingRef.current) {
+            clearFields();
+        }
+        wasEditingRef.current = !!initialTemplate;
+    }, [visible, initialTemplate]);
 
     const handleAddBlock = () => {
         setBlocks(prev => [...prev, { id: Date.now().toString(), muscleGroup: '', exercises: [] }]);
@@ -138,7 +198,8 @@ export default function WorkoutForm({ visible, categories, isGenerating, onClose
                             sets: ex.sets,
                             reps: ex.reps,
                             weight: ex.weight,
-                            notes: ex.notes
+                            notes: ex.notes,
+                            ...(ex.status ? { status: ex.status } : {})
                         });
                     }
                 }
@@ -157,14 +218,7 @@ export default function WorkoutForm({ visible, categories, isGenerating, onClose
     };
 
     const resetForm = () => {
-        setTemplateName('');
-        setTemplateCategoryId(null);
-        setBlocks([{ id: Date.now().toString(), muscleGroup: '', exercises: [] }]);
-        setWorkoutType('gym');
-        setRequireTimeOnLog(true);
-        setPresetDuration('');
-        setDistance('');
-        setNotes('');
+        clearFields();
         onClose();
     };
 
@@ -173,7 +227,7 @@ export default function WorkoutForm({ visible, categories, isGenerating, onClose
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
                 <View style={styles.modalContentLarge}>
                     <View style={styles.modalHeader}>
-                        <Text style={styles.modalTitle}>אימון חדש לספרייה</Text>
+                        <Text style={styles.modalTitle}>{isEditMode ? 'עריכת אימון' : 'אימון חדש לספרייה'}</Text>
                         <TouchableOpacity onPress={resetForm} disabled={isGenerating}>
                             <Ionicons name="close" size={26} color="#64748b" />
                         </TouchableOpacity>
@@ -345,7 +399,7 @@ export default function WorkoutForm({ visible, categories, isGenerating, onClose
                         )}
 
                         <TouchableOpacity style={styles.fullSubmitBtn} onPress={handleSubmit} disabled={isGenerating}>
-                            {isGenerating ? <ActivityIndicator color="#fff" /> : <Text style={styles.fullSubmitText}>סכם באמצעות AI ושמור אימון</Text>}
+                            {isGenerating ? <ActivityIndicator color="#fff" /> : <Text style={styles.fullSubmitText}>{isEditMode ? 'שמור שינויים' : 'סכם באמצעות AI ושמור אימון'}</Text>}
                         </TouchableOpacity>
                     </ScrollView>
                 </View>

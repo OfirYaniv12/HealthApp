@@ -1,8 +1,71 @@
 import { getLogicalDayMeals, getLogicalDayWorkouts, Meal, Workout } from '@/db/database';
-import { useUserStore } from '@/store/useUserStore';
+import { UserData, useUserStore } from '@/store/useUserStore';
 import { generateDailyScoreExplanation } from './ai';
-import { getLogicalDayBounds } from './calculators';
-import { calculateDailyScore } from './dailyScore';
+import { getLogicalDayBounds, getLogicalDayBoundsForKey, getLogicalDayKey } from './calculators';
+import { calculateDailyScore, classifyWorkout } from './dailyScore';
+
+/** Target workouts per week, derived from the onboarding answer (e.g. "3-4 בשבוע" -> 3-4). */
+const weeklyWorkoutTarget = (freq?: string) => {
+    if (!freq || freq.includes('לא')) return { min: 0, max: 0, label: 'לא מתאמן באופן קבוע' };
+    const nums = (freq.match(/\d+/g) || []).map(Number);
+    return { min: nums[0] ?? 0, max: nums[1] ?? nums[0] ?? 0, label: freq };
+};
+
+const describeWorkouts = (workouts: Workout[]) =>
+    workouts.length === 0
+        ? 'לא נרשמו אימונים'
+        : workouts.map(w => {
+            const c = classifyWorkout(w);
+            const firstLine = (w.description || '').split('\n')[0];
+            return `${w.name}: ${w.duration_minutes} דק', ${w.calories_burned} קק"ל${firstLine ? ` (${firstLine})` : ''} => ${c.level === 'significant' ? 'אימון משמעותי' : 'פעילות קלה'} [${c.reason}]`;
+        }).join(' | ');
+
+/**
+ * Builds everything the AI needs to explain one logical day (today or a finished past day).
+ * Workouts are classified as "significant" vs "light" and compared to the weekly goal so the
+ * coach can tell a real workout from a quick 15-minute walk.
+ */
+const buildDayContext = async (user: UserData, dayKey: string, dayComplete: boolean) => {
+    const resetTime = user.resetTime || '00:00';
+    const { start, end, endDate } = getLogicalDayBoundsForKey(dayKey, resetTime);
+    const [meals, workouts] = await Promise.all([getLogicalDayMeals(start, end), getLogicalDayWorkouts(start, end)]);
+
+    const score = calculateDailyScore(
+        meals as Meal[], workouts as Workout[], user.daily_targets as Record<string, number>,
+        user.trackedNutrients, user.goal,
+        dayComplete ? endDate.getTime() - 60 * 1000 : Date.now(), resetTime, { dayComplete }
+    );
+
+    const relevantKeys = Object.keys(user.daily_targets || {}).filter(key => user.trackedNutrients === undefined || user.trackedNutrients[key] === true);
+    const consumptionStr = relevantKeys.map(key => {
+        const target = user.daily_targets[key as keyof typeof user.daily_targets] || 0;
+        const consumed = (meals as Meal[]).reduce((sum, meal) => sum + ((meal[key as keyof Meal] as number) || 0), 0);
+        return `${key}: צרך ${Math.round(consumed)}, יעד ${target}`;
+    }).join(' | ');
+    const loggedFoodsStr = (meals as Meal[]).map(m => m.name).join(', ') || 'לא נרשמו ארוחות';
+
+    // Past 3 days + this week's workouts (week = the 7 logical days ending with this day)
+    const pastStart = new Date(start); pastStart.setDate(pastStart.getDate() - 3);
+    const weekStart = new Date(start); weekStart.setDate(weekStart.getDate() - 6);
+    const [pastMeals, pastWorkouts, weekWorkouts] = await Promise.all([
+        getLogicalDayMeals(pastStart.toISOString(), start),
+        getLogicalDayWorkouts(pastStart.toISOString(), start),
+        getLogicalDayWorkouts(weekStart.toISOString(), end),
+    ]);
+    const pastMealsTotal = (pastMeals || []).reduce((sum, m) => sum + (m.calories || 0), 0);
+    const target = weeklyWorkoutTarget(user.workout_frequency);
+    const weekSignificant = (weekWorkouts as Workout[]).filter(w => classifyWorkout(w).level === 'significant').length;
+    const weekLight = (weekWorkouts as Workout[]).length - weekSignificant;
+
+    const pastContextStr =
+        `3 הימים הקודמים: ${(pastMeals || []).length} ארוחות (כ-${Math.round(pastMealsTotal)} קק"ל) ו-${(pastWorkouts || []).length} אימונים. ` +
+        `ב-7 הימים האחרונים: ${weekSignificant} אימונים משמעותיים ו-${weekLight} פעילויות קלות. יעד שבועי: ${target.label}.`;
+
+    const workoutsDetailStr = describeWorkouts(workouts as Workout[]);
+    const hash = `${(meals as Meal[]).map(m => m.id).sort().join(',')}|${(workouts as Workout[]).map(w => w.id).sort().join(',')}|${resetTime}`;
+
+    return { meals, workouts, score, consumptionStr, loggedFoodsStr, pastContextStr, workoutsDetailStr, hash, endDate };
+};
 
 export const refreshDailyScoreData = async () => {
     try {
@@ -20,10 +83,12 @@ export const refreshDailyScoreData = async () => {
             workouts as Workout[],
             user.daily_targets as Record<string, number>,
             user.trackedNutrients,
-            user.goal
+            user.goal,
+            Date.now(),
+            user.resetTime || '00:00'
         );
 
-        const todayDateStr = new Date().toISOString().split('T')[0];
+        const todayDateStr = getLogicalDayKey(new Date(), user.resetTime);
         useUserStore.getState().setDailyScoreData(todayDateStr, score);
 
         return { meals, workouts, score, user, todayDateStr };
@@ -38,56 +103,28 @@ export const triggerScoreExplanationUpdate = async () => {
         const data = await refreshDailyScoreData();
         if (!data) return;
 
-        const { meals, workouts, score, user, todayDateStr } = data;
-
-        // Calculate Data Fingerprint for reactive triggers on logs change
-        const mealFingerprint = (meals as Meal[]).map(m => m.id).sort().join(',');
-        const workoutFingerprint = (workouts as Workout[]).map(w => w.id).sort().join(',');
-        const newHash = `${mealFingerprint}|${workoutFingerprint}`;
+        const { user, todayDateStr } = data;
+        const ctx = await buildDayContext(user, todayDateStr, false);
 
         const lastUpdated = user.dailyScoreLastUpdated?.[todayDateStr] || 0;
         const previousHash = user.dailyScoreExplanationHashes?.[todayDateStr] || '';
-        
+
         const ONE_HOUR = 60 * 60 * 1000;
         const isRecent = Date.now() - lastUpdated < ONE_HOUR;
-        const isSameHash = previousHash === newHash;
 
-        // ✅ CACHE GUARD: Only skip if SAME HASH AND RECENT (within hour)
-        if (isSameHash && isRecent) {
+        // Only skip if nothing changed AND the explanation is recent (within the hour)
+        if (previousHash === ctx.hash && isRecent) {
             return;
         }
 
-        // Build consumption string for AI context
-        const relevantKeys = Object.keys(user.daily_targets || {}).filter(key => user.trackedNutrients === undefined || user.trackedNutrients[key] === true);
-        const consumptionStr = relevantKeys.map(key => {
-            const target = user.daily_targets[key as keyof typeof user.daily_targets] || 0;
-            const consumed = (meals as Meal[]).reduce((sum, meal) => sum + ((meal[key as keyof Meal] as number) || 0), 0);
-            return `${key}: צרך ${Math.round(consumed)}, יעד ${target}`;
-        }).join(' | ');
-
-        const isWorkoutLogged = workouts.length > 0;
-        const loggedFoodsStr = (meals as Meal[]).map(m => m.name).join(', ') || 'לא נרשמו ארוחות';
-
-        // Fetch past 3 days context
-        const { start } = getLogicalDayBounds(user.resetTime || '00:00');
-        const pastDate = new Date(start);
-        pastDate.setDate(pastDate.getDate() - 3);
-        const pastStartIso = pastDate.toISOString();
-        const [pastMeals, pastWorkouts] = await Promise.all([
-            getLogicalDayMeals(pastStartIso, start),
-            getLogicalDayWorkouts(pastStartIso, start)
-        ]);
-        const pastMealsTotal = (pastMeals || []).reduce((sum, m) => sum + (m.calories || 0), 0);
-        const pastContextStr = `Past 3 days logged ${(pastMeals || []).length} meals (approx ${Math.round(pastMealsTotal)} kcal total) and ${(pastWorkouts || []).length} workouts.`;
-
-        // Generate Explanation — returns null on any API/quota error
         const explanation = await generateDailyScoreExplanation(
-            score, 
-            consumptionStr, 
-            isWorkoutLogged, 
-            (user.goal || '') + " | Workout Frequency: " + (user.workout_frequency || 'Unknown'), 
-            loggedFoodsStr, 
-            pastContextStr
+            ctx.score,
+            ctx.consumptionStr,
+            ctx.workouts.length > 0,
+            (user.goal || '') + ' | תדירות אימונים: ' + (user.workout_frequency || 'לא צוין'),
+            ctx.loggedFoodsStr,
+            ctx.pastContextStr,
+            { workoutsDetailStr: ctx.workoutsDetailStr }
         );
 
         if (!explanation) {
@@ -96,10 +133,45 @@ export const triggerScoreExplanationUpdate = async () => {
             return;
         }
 
-        // Save to store with timestamp so 1-hour guard works correctly
-        useUserStore.getState().setDailyScoreExplanation(todayDateStr, explanation, newHash);
-
+        useUserStore.getState().setDailyScoreExplanation(todayDateStr, explanation, ctx.hash);
     } catch (e) {
         console.error('Background score update failed:', e);
     }
+};
+
+/**
+ * Final summary of a finished logical day (used by the calendar's day screen).
+ * The score is computed for the whole day as it stood at the reset time. The AI summary is
+ * (re)generated only if the saved one was written before the day ended or the data has changed,
+ * so the summary always matches the final score.
+ */
+export const getFinalDaySummary = async (dayKey: string, options: { generateExplanation?: boolean } = {}) => {
+    const user = useUserStore.getState().user;
+    if (!user) return null;
+
+    const ctx = await buildDayContext(user, dayKey, true);
+    useUserStore.getState().setDailyScoreData(dayKey, ctx.score);
+
+    const savedExplanation = user.dailyScoreExplanations?.[dayKey] || null;
+    const savedAt = user.dailyScoreLastUpdated?.[dayKey] || 0;
+    const savedHash = user.dailyScoreExplanationHashes?.[dayKey] || '';
+    const isFinal = savedExplanation && savedAt >= ctx.endDate.getTime() && savedHash === ctx.hash;
+
+    let explanation = isFinal ? savedExplanation : null;
+    if (!explanation && options.generateExplanation && (ctx.meals.length > 0 || ctx.workouts.length > 0)) {
+        explanation = await generateDailyScoreExplanation(
+            ctx.score,
+            ctx.consumptionStr,
+            ctx.workouts.length > 0,
+            (user.goal || '') + ' | תדירות אימונים: ' + (user.workout_frequency || 'לא צוין'),
+            ctx.loggedFoodsStr,
+            ctx.pastContextStr,
+            { workoutsDetailStr: ctx.workoutsDetailStr, isFinalSummary: true }
+        );
+        if (explanation) {
+            useUserStore.getState().setDailyScoreExplanation(dayKey, explanation, ctx.hash, Date.now());
+        }
+    }
+
+    return { ...ctx, explanation };
 };

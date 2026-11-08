@@ -1,5 +1,6 @@
 import { AlertManager as Alert } from '@/components/GlobalAlert';
 import { UserData, useUserStore } from '@/store/useUserStore';
+import { saveUserProfile } from '@/db/database';
 import { generatePersonalizedPlan } from '@/utils/ai';
 import { supabase } from '@/utils/supabase';
 import { ActivityLevel, BodyType, GenderType, GoalType, TargetPace, WorkoutFrequency } from '@/utils/calculators';
@@ -108,24 +109,15 @@ export default function OnboardingScreen() {
             baseUser.daily_targets = { calories: 2000, protein: 120, carbs: 200, fat: 60 };
         }
 
-        // Save to Supabase to make sure it persists in the cloud
+        // Save to Supabase so the profile exists on every device (not only in this browser)
         if (session?.user?.id) {
-            const { error: insertError } = await supabase.from('users').upsert({
-                id: session.user.id,
-                full_name: baseUser.full_name,
-                gender: baseUser.gender,
-                age: baseUser.age,
-                height: baseUser.height,
-                weight: baseUser.weight,
-                goal: baseUser.goal,
-                activity_level: baseUser.activity_level,
-                workout_frequency: baseUser.workout_frequency,
-                body_type: baseUser.body_type,
-                target_pace: baseUser.target_pace || null,
-                daily_targets: baseUser.daily_targets
-            });
-            if (insertError) {
-                console.error("Failed to insert user profile:", insertError);
+            const saveError = await saveUserProfile(baseUser);
+            if (saveError) {
+                setUser(baseUser);
+                Alert.alert('הפרופיל נשמר רק במכשיר הזה', 'לא הצלחנו לשמור את הפרטים בענן, ולכן במכשיר אחר תתבקש למלא אותם שוב.\n\n' + saveError, [
+                    { text: 'הבנתי', onPress: () => router.replace('/(drawer)' as any) }
+                ]);
+                return;
             }
         }
 

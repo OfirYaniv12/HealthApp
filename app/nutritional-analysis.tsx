@@ -1,6 +1,6 @@
 import { Meal, getLogicalDayMeals } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
-import { getLogicalDayBounds } from '@/utils/calculators';
+import { getLogicalDayBounds, getLogicalDayKey } from '@/utils/calculators';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
@@ -33,7 +33,7 @@ export default function NutritionalAnalysisScreen() {
 
     if (!user) return null;
 
-    const todayDateStr = new Date().toISOString().split('T')[0];
+    const todayDateStr = getLogicalDayKey(new Date(), useUserStore.getState().user?.resetTime);
     const scoreExpCache = user.dailyScoreExplanations?.[todayDateStr];
     let aiStatuses: Record<string, string> = {};
     if (scoreExpCache) {

@@ -8,7 +8,7 @@ import NutrientModal from '@/components/NutrientModal';
 // Force RTL layout 
 import { Meal, Workout, getLogicalDayMeals, getLogicalDayWorkouts } from '@/db/database';
 import { generateDailyRecommendations } from '@/utils/ai';
-import { getLogicalDayBounds } from '@/utils/calculators';
+import { getLogicalDayBounds, getLogicalDayKey } from '@/utils/calculators';
 import { getActiveNutrients, nutrientLabelsLoc } from '@/utils/nutrients';
 import { refreshDailyScoreData } from '@/utils/scoreUpdater';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -53,7 +53,7 @@ export default function DashboardScreen() {
           const mealFingerprint = logs.map(m => m.id).sort().join(',');
           const workoutFingerprint = workouts.map(w => w.id).sort().join(',');
           const newHash = `${mealFingerprint}|${workoutFingerprint}`;
-          const todayDateStr = new Date().toISOString().split('T')[0];
+          const todayDateStr = getLogicalDayKey(new Date(), useUserStore.getState().user?.resetTime);
 
           const recsCache = currentUser.dailyRecommendations;
           const isSameDay = recsCache?.dateStr === todayDateStr;
@@ -159,7 +159,7 @@ export default function DashboardScreen() {
     }
   };
 
-  const todayDateStr = new Date().toISOString().split('T')[0];
+  const todayDateStr = getLogicalDayKey(new Date(), useUserStore.getState().user?.resetTime);
   const scoreExpCache = user.dailyScoreExplanations?.[todayDateStr];
   let aiStatuses: Record<string, string> = {};
   if (scoreExpCache) {

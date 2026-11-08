@@ -34,7 +34,9 @@ export default function AddWorkoutChatScreen() {
                 name: workoutData.name,
                 duration_minutes: workoutData.duration_minutes,
                 calories_burned: workoutData.calories_burned,
-                description: workoutData.summary,
+                description: workoutData.distance_km
+                    ? `מרחק: ${workoutData.distance_km} ק"מ\n\n${workoutData.summary || ''}`.trim()
+                    : workoutData.summary,
                 timestamp: new Date().toISOString()
             });
 
@@ -170,7 +172,7 @@ export default function AddWorkoutChatScreen() {
                                 <View style={styles.mealCard}>
                                     <View style={styles.mealCardHeader}>
                                         <Ionicons name="sparkles" size={16} color="#8b5cf6" />
-                                        <Text style={styles.mealCardTitle}>Gemini AI Analysis</Text>
+                                        <Text style={styles.mealCardTitle}>ניתוח AI</Text>
                                         <View style={{ flex: 1 }} />
                                     </View>
                                     <Text style={styles.mealName}>{msg.workoutData.name}</Text>

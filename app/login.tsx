@@ -4,6 +4,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator,
 import { supabase } from '@/utils/supabase';
 import { useRouter } from 'expo-router';
 import { useUserStore } from '@/store/useUserStore';
+import { fetchUserProfile, saveUserProfile } from '@/db/database';
 
 // Force RTL
 if (!I18nManager.isRTL) {
@@ -62,15 +63,16 @@ export default function LoginScreen() {
                 return;
             }
 
-            // Fetch user data from Supabase users table
-            const { data: userData, error: userError } = await supabase
-                .from('users')
-                .select('*')
-                .eq('id', data.user.id)
-                .single();
+            // Fetch the profile from the cloud
+            const userData = await fetchUserProfile(data.user.id);
+            const localUser = useUserStore.getState().user;
 
-            if (userData && !userError) {
+            if (userData) {
                 useUserStore.getState().setUser(userData);
+                router.replace('/(drawer)' as any);
+            } else if (localUser?.full_name && (!localUser.id || localUser.id === data.user.id)) {
+                // The profile exists on this device but never reached the cloud: upload it instead of asking again
+                await saveUserProfile({ ...localUser, id: data.user.id } as any);
                 router.replace('/(drawer)' as any);
             } else {
                 router.replace('/onboarding' as any);

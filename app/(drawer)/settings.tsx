@@ -1,11 +1,13 @@
 import { AlertManager as Alert } from '@/components/GlobalAlert';
 import { clearAllMeals } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
+import { triggerScoreExplanationUpdate } from '@/utils/scoreUpdater';
+import { pushUserSettings } from '@/utils/userSettingsSync';
 import { Ionicons } from '@expo/vector-icons';
 import { DrawerActions, useNavigation } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { I18nManager, Platform, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';;
+import { I18nManager, Platform, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 
 if (!I18nManager.isRTL) {
     I18nManager.allowRTL(true);
@@ -23,6 +25,7 @@ export default function SettingsScreen() {
     const toggleNutrient = (key: string) => {
         const isCurrentlyOn = tracked[key] !== false; // true if true or undefined
         updateTrackedNutrients({ [key]: !isCurrentlyOn });
+        pushUserSettings();
     };
 
     const renderToggle = (key: string, label: string) => {
@@ -40,18 +43,22 @@ export default function SettingsScreen() {
         );
     };
 
+    const [resetHour, resetMinute] = tempResetTime.split(':').map(n => parseInt(n, 10) || 0);
+
+    // Moves the time by the given number of minutes, wrapping around midnight
+    const shiftTime = (deltaMinutes: number) => {
+        const total = (((resetHour * 60 + resetMinute + deltaMinutes) % 1440) + 1440) % 1440;
+        const h = Math.floor(total / 60);
+        const m = total % 60;
+        setTempResetTime(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+    };
+
     const handleSaveResetTime = () => {
         if (!user) return;
-
-        // Simple validation
-        if (!/^\d{2}:\d{2}$/.test(tempResetTime)) {
-            Alert.alert('שגיאה', 'אנא הזן תצורה חוקית, למשל 02:00 או 00:00');
-            return;
-        }
-
-        setUser({ ...user, resetTime: tempResetTime });
+        setUser({ ...user, resetTime: tempResetTime, settingsUpdatedAt: Date.now() });
+        pushUserSettings();
+        triggerScoreExplanationUpdate();
         Alert.alert('הצלחה', 'שעת החלפת יום עודכנה בהצלחה!');
-        router.back();
     };
 
     const handleClearData = () => {
@@ -117,19 +124,45 @@ export default function SettingsScreen() {
                             <Ionicons name="time-outline" size={24} color="#3b82f6" />
                         </View>
 
-                        <View style={styles.timeInputRow}>
-                            <TextInput
-                                style={styles.timeInput}
-                                value={tempResetTime}
-                                onChangeText={setTempResetTime}
-                                placeholder="00:00"
-                                keyboardType="numbers-and-punctuation"
-                                maxLength={5}
-                            />
-                            <TouchableOpacity style={styles.saveTimeBtn} onPress={handleSaveResetTime}>
-                                <Text style={styles.saveTimeBtnText}>שמור זמנים</Text>
-                            </TouchableOpacity>
+                        {/* Clock-style picker: hours on the left, minutes on the right (always LTR like a clock) */}
+                        <View style={styles.clockRow}>
+                            <View style={styles.clockColumn}>
+                                <TouchableOpacity style={styles.clockArrow} onPress={() => shiftTime(60)} accessibilityLabel="הוסף שעה">
+                                    <Ionicons name="chevron-up" size={26} color="#3b82f6" />
+                                </TouchableOpacity>
+                                <Text style={styles.clockDigits}>{String(resetHour).padStart(2, '0')}</Text>
+                                <TouchableOpacity style={styles.clockArrow} onPress={() => shiftTime(-60)} accessibilityLabel="הורד שעה">
+                                    <Ionicons name="chevron-down" size={26} color="#3b82f6" />
+                                </TouchableOpacity>
+                                <Text style={styles.clockUnit}>שעה</Text>
+                            </View>
+                            <Text style={styles.clockColon}>:</Text>
+                            <View style={styles.clockColumn}>
+                                <TouchableOpacity style={styles.clockArrow} onPress={() => shiftTime(15)} accessibilityLabel="הוסף רבע שעה">
+                                    <Ionicons name="chevron-up" size={26} color="#3b82f6" />
+                                </TouchableOpacity>
+                                <Text style={styles.clockDigits}>{String(resetMinute).padStart(2, '0')}</Text>
+                                <TouchableOpacity style={styles.clockArrow} onPress={() => shiftTime(-15)} accessibilityLabel="הורד רבע שעה">
+                                    <Ionicons name="chevron-down" size={26} color="#3b82f6" />
+                                </TouchableOpacity>
+                                <Text style={styles.clockUnit}>דקות</Text>
+                            </View>
                         </View>
+
+                        <Text style={styles.clockHint}>
+                            {tempResetTime === '00:00'
+                                ? 'היום מתחלף בחצות.'
+                                : `כל מה שתאכל בין 00:00 ל-${tempResetTime} יירשם ליום הקודם.`}
+                        </Text>
+
+                        <TouchableOpacity
+                            style={[styles.saveTimeBtn, tempResetTime === (user?.resetTime || '00:00') && styles.saveTimeBtnDisabled]}
+                            onPress={handleSaveResetTime}
+                            disabled={tempResetTime === (user?.resetTime || '00:00')}
+                        >
+                            <Ionicons name="checkmark" size={18} color="#fff" />
+                            <Text style={styles.saveTimeBtnText}>שמור שעה</Text>
+                        </TouchableOpacity>
                     </View>
                 </View>
 
@@ -182,10 +215,17 @@ const styles = StyleSheet.create({
     toggleLabel: { fontSize: 16, fontWeight: '500', color: '#1e293b' },
     divider: { height: 1, backgroundColor: '#f1f5f9' },
 
-    timeInputRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 12 },
-    timeInput: { backgroundColor: '#f8fafc', flex: 1, padding: 12, borderRadius: 12, fontSize: 18, fontWeight: 'bold', color: '#1e293b', textAlign: 'center', borderWidth: 1, borderColor: '#e2e8f0' },
-    saveTimeBtn: { backgroundColor: '#3b82f6', paddingHorizontal: 20, paddingVertical: 14, borderRadius: 12 },
-    saveTimeBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
+    // Clocks always read left-to-right (HH:MM), also when the app layout is RTL
+    clockRow: { flexDirection: I18nManager.isRTL ? 'row-reverse' : 'row', justifyContent: 'center', alignItems: 'center', gap: 16, backgroundColor: '#f8fafc', borderRadius: 16, paddingVertical: 8, borderWidth: 1, borderColor: '#e2e8f0' },
+    clockColumn: { alignItems: 'center', minWidth: 72 },
+    clockArrow: { padding: 6 },
+    clockDigits: { fontSize: 40, fontWeight: 'bold', color: '#1e293b', fontVariant: ['tabular-nums'] },
+    clockColon: { fontSize: 40, fontWeight: 'bold', color: '#94a3b8', marginBottom: 22 },
+    clockUnit: { fontSize: 12, color: '#94a3b8', marginTop: 2 },
+    clockHint: { fontSize: 13, color: '#64748b', textAlign: 'center', marginTop: 12 },
+    saveTimeBtn: { flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#3b82f6', paddingVertical: 14, borderRadius: 12, marginTop: 16 },
+    saveTimeBtnDisabled: { backgroundColor: '#cbd5e1' },
+    saveTimeBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
 
     dangerButton: { flexDirection: 'row-reverse', alignItems: 'center', backgroundColor: '#fee2e2', padding: 16, borderRadius: 16, gap: 12 },
     dangerButtonText: { fontSize: 18, fontWeight: 'bold', color: '#ef4444' },

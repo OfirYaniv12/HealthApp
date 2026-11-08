@@ -25,6 +25,7 @@ export default function AddMealChatScreen() {
     const { messages, setMessages } = useChatStore();
     const [inputText, setInputText] = useState('');
     const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
+    const [selectedImageBase64, setSelectedImageBase64] = useState<string | null>(null);
     const [isTyping, setIsTyping] = useState(false);
     const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
     const scrollViewRef = useRef<ScrollView>(null);
@@ -88,13 +89,16 @@ export default function AddMealChatScreen() {
     const pickImage = async (useCamera: boolean) => {
         setShowAttachmentMenu(false);
         let result = useCamera
-            ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8, base64: true })
-            : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8, base64: true });
+            ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: false, quality: 0.6, base64: true })
+            : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: false, quality: 0.6, base64: true });
 
         if (!result.canceled && result.assets && result.assets.length > 0) {
-            setSelectedImageUri(result.assets[0].uri);
-            // In a real app we'd keep the base64 in state for the API:
-            // setBase64(`data:image/jpeg;base64,${result.assets[0].base64}`); 
+            const asset = result.assets[0];
+            setSelectedImageUri(asset.uri);
+            // Keep the image data so it is actually sent to the AI (needed for nutrition labels, menus, plates)
+            setSelectedImageBase64(asset.base64
+                ? `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}`
+                : (asset.uri.startsWith('data:') ? asset.uri : null));
         }
     };
 
@@ -103,6 +107,7 @@ export default function AddMealChatScreen() {
 
         const sentText = inputText;
         const sentImage = selectedImageUri || undefined;
+        const sentImageBase64 = selectedImageBase64 || undefined;
 
         const userMsg: Message = { id: Date.now().toString(), sender: 'user', text: sentText || undefined, image: sentImage };
         const updatedMessages = [...messages, userMsg];
@@ -110,24 +115,32 @@ export default function AddMealChatScreen() {
 
         setInputText('');
         setSelectedImageUri(null);
+        setSelectedImageBase64(null);
         setIsTyping(true);
         setShowAttachmentMenu(false);
 
-        // Map complete history to native Gemini API structure
+        // Map the conversation to the Gemini format. Bot meal cards are sent back as the JSON the model
+        // produced (not the Hebrew wrapper text), so the model keeps answering in the same JSON format.
         const history: { role: 'user' | 'model', parts: { text: string }[] }[] = updatedMessages
-            .filter(m => m.id !== '1' && m.id !== userMsg.id && !m.image) // Exclude initial greeting & current message
-            .map(m => ({
-                role: m.sender === 'user' ? 'user' : 'model',
-                parts: [{ text: m.text || (m.mealData ? JSON.stringify(m.mealData) : '') }]
-            }));
+            .filter(m => m.id !== '1' && m.id !== userMsg.id) // Exclude initial greeting & current message
+            .map(m => {
+                let text = '';
+                if (m.sender === 'bot' && m.mealData) {
+                    text = JSON.stringify({ isMeal: true, ...m.mealData });
+                } else if (m.sender === 'bot') {
+                    text = JSON.stringify({ isMeal: false, textResponse: m.text || '' });
+                } else {
+                    text = (m.text || '') + (m.image ? ' [צורפה תמונה]' : '');
+                }
+                return { role: m.sender === 'user' ? 'user' as const : 'model' as const, parts: [{ text: text.trim() }] };
+            })
+            .filter(m => m.parts[0].text);
 
         setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
 
         try {
-            // Note: In Expo, fetching base64 from a URI requires FileSystem. 
-            // For MVP LLM Vision, image processing should ideally be passed along here. 
-            // To prevent blocking, we just pass the text for this simulation build, or mock it.
-            const aiResponse = await generateNutritionResponse(history, sentText);
+            const messageForAi = sentText.trim() || (sentImageBase64 ? 'נתח את התמונה המצורפת ורשום את מה שבה כארוחה.' : '');
+            const aiResponse = await generateNutritionResponse(history, messageForAi, sentImageBase64);
 
             setIsTyping(false);
 
@@ -270,7 +283,7 @@ export default function AddMealChatScreen() {
                                 <View style={styles.mealCard}>
                                     <View style={styles.mealCardHeader}>
                                         <Ionicons name="sparkles" size={16} color="#8b5cf6" />
-                                        <Text style={styles.mealCardTitle}>Gemini AI Analysis</Text>
+                                        <Text style={styles.mealCardTitle}>ניתוח AI</Text>
                                         <View style={{ flex: 1 }} />
                                     </View>
                                     <Text style={styles.mealName}>{msg.mealData.name}</Text>
@@ -302,7 +315,7 @@ export default function AddMealChatScreen() {
                     {isTyping && (
                         <View style={[styles.messageBubble, styles.botBubble, { paddingVertical: 12, flexDirection: 'row-reverse', alignItems: 'center', gap: 8 }]}>
                             <ActivityIndicator size="small" color="#3b82f6" />
-                            <Text style={styles.botText}>Chatting...</Text>
+                            <Text style={styles.botText}>מנתח...</Text>
                         </View>
                     )}
                 </ScrollView>
@@ -311,7 +324,7 @@ export default function AddMealChatScreen() {
                     {selectedImageUri && (
                         <View style={styles.attachmentPreviewContainer}>
                             <Image source={{ uri: selectedImageUri }} style={styles.attachmentPreviewImage} />
-                            <TouchableOpacity style={styles.removeAttachmentButton} onPress={() => setSelectedImageUri(null)}>
+                            <TouchableOpacity style={styles.removeAttachmentButton} onPress={() => { setSelectedImageUri(null); setSelectedImageBase64(null); }}>
                                 <Ionicons name="close-circle" size={24} color="#64748b" />
                             </TouchableOpacity>
                         </View>

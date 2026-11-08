@@ -1,5 +1,5 @@
 import { useUserStore } from '@/store/useUserStore';
-import { getLogicalDayBounds } from '@/utils/calculators';
+import { getLogicalDayBounds, getLogicalDayKey } from '@/utils/calculators';
 import { refreshDailyScoreData, triggerScoreExplanationUpdate } from '@/utils/scoreUpdater';
 import { Ionicons } from '@expo/vector-icons';
 import { DrawerActions, useNavigation } from '@react-navigation/native';
@@ -20,7 +20,7 @@ export default function DailyScoreScreen() {
     const [popupInfo, setPopupInfo] = useState<'nutrition' | 'workout' | null>(null);
     const [isLoadingAI, setIsLoadingAI] = useState(false);
 
-    const todayDateStr = new Date().toISOString().split('T')[0];
+    const todayDateStr = getLogicalDayKey(new Date(), useUserStore.getState().user?.resetTime);
     const rawExplanation = user?.dailyScoreExplanations?.[todayDateStr];
     const lastUpdatedTimestamp = user?.dailyScoreLastUpdated?.[todayDateStr] || 0;
     
