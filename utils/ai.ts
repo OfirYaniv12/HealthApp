@@ -431,6 +431,8 @@ Formula: Calories Burned = METs × Weight (kg) × (Duration in minutes / 60)
    - Walking (MET is GROSS, choose by exact speed): <3.2 km/h ≈ 2.8 | 3.2-4.4 ≈ 3.0-3.5 | 4.5-5.5 ≈ 3.8-4.3 | 5.6-6.9 ≈ 5.0 | 7.0-7.9 ≈ 6.3 | 8.0+ (race walking) ≈ 8.0
    - Running: 8 km/h ≈ 8.3 | 9.7 ≈ 9.8 | 11.3 ≈ 11.0 | 12.9 ≈ 11.8 | 14.5 ≈ 12.8 | 16+ ≈ 14.5+
    - Cycling: <16 km/h ≈ 4.0-5.8 | 16-19 ≈ 6.8 | 19-22 ≈ 8.0 | 22-25.5 ≈ 10.0 | >25.5 ≈ 12.0
+- Swimming (by pace per 100 m): >3:00 ≈ 5.8 (easy) | 2:00-3:00 ≈ 7-8.3 (moderate) | <2:00 ≈ 9.8-10 (fast). Do not apply the per-km sanity ranges to swimming.
+   - Swimming (by pace per 100 m): >3:00 ≈ 5.8 (easy) | 2:00-3:00 ≈ 7-8.3 (moderate) | <2:00 ≈ 9.8-10 (fast). Do not apply the per-km sanity ranges to swimming.
    MANDATORY sanity check: the final calories MUST fall within the energy-per-distance range — walking 0.5-0.8 kcal per kg per km, running 0.9-1.05 kcal per kg per km, cycling 0.25-0.45 kcal per kg per km. If your MET result falls outside it, lower/raise the MET until it fits. If the speed is physically implausible, say so in the summary and rely on the distance.
    The Hebrew summary MUST mention the distance, the computed pace/speed and the MET you chose.
 6. If no distance is provided for these types, estimate by duration and say in the summary that the estimate is time-based because no distance was given.

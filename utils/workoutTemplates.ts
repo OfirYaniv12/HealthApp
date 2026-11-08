@@ -9,18 +9,29 @@ import { triggerScoreExplanationUpdate } from '@/utils/scoreUpdater';
  * the workout chat), so they all behave the same way.
  */
 
-export type WorkoutType = 'gym' | 'running' | 'cycling' | 'walking' | 'other';
+export type WorkoutType = 'gym' | 'running' | 'cycling' | 'walking' | 'swimming' | 'other';
 
 export const WORKOUT_TYPE_LABELS: Record<WorkoutType, string> = {
     gym: 'חדר כושר',
     running: 'ריצה',
     cycling: 'רכיבה',
     walking: 'הליכה',
+    swimming: 'שחייה',
     other: 'אחר',
 };
 
 /** Workout types where distance matters for the calorie estimate. */
-export const DISTANCE_TYPES: WorkoutType[] = ['running', 'cycling', 'walking'];
+export const DISTANCE_TYPES: WorkoutType[] = ['running', 'cycling', 'walking', 'swimming'];
+
+/** All workout types in display order (used for the type picker and the filters). */
+export const WORKOUT_TYPES: { id: WorkoutType; label: string; icon: string }[] = [
+    { id: 'gym', label: 'חדר כושר', icon: 'barbell-outline' },
+    { id: 'running', label: 'ריצה', icon: 'walk-outline' },
+    { id: 'cycling', label: 'רכיבה', icon: 'bicycle-outline' },
+    { id: 'walking', label: 'הליכה', icon: 'footsteps-outline' },
+    { id: 'swimming', label: 'שחייה', icon: 'water-outline' },
+    { id: 'other', label: 'אחר', icon: 'list-outline' },
+];
 
 export interface TemplateMeta {
     type: WorkoutType;
@@ -30,7 +41,7 @@ export interface TemplateMeta {
     notes: string;
 }
 
-const KNOWN_TYPES: WorkoutType[] = ['gym', 'running', 'cycling', 'walking', 'other'];
+const KNOWN_TYPES: WorkoutType[] = ['gym', 'running', 'cycling', 'walking', 'swimming', 'other'];
 
 /** Reads the settings stored with a template (type, fixed duration, distance...). Handles old templates too. */
 export const parseTemplateMeta = (template: Pick<WorkoutTemplate, 'description' | 'exercises'>): TemplateMeta => {
@@ -86,12 +97,12 @@ const formatKm = (km: number) => (Math.round(km * 100) / 100).toString();
 
 /** Simple physics fallback for when the AI is unavailable. */
 const fallbackCalories = (type: WorkoutType, weightKg: number, durationMin: number, distanceKm: number | null) => {
-    if (distanceKm && DISTANCE_TYPES.includes(type)) {
+    if (distanceKm && DISTANCE_TYPES.includes(type) && type !== 'swimming') {
         // Gross energy cost per kg per km (well established approximations)
         const perKgKm = type === 'running' ? 1.0 : type === 'walking' ? 0.65 : 0.3;
         return Math.round(perKgKm * weightKg * distanceKm);
     }
-    const met = type === 'gym' ? 3.5 : type === 'running' ? 8.5 : type === 'cycling' ? 7 : type === 'walking' ? 3.5 : 5;
+    const met = type === 'gym' ? 3.5 : type === 'running' ? 8.5 : type === 'cycling' ? 7 : type === 'walking' ? 3.5 : type === 'swimming' ? 7 : 5;
     return Math.round(met * weightKg * (durationMin / 60));
 };
 

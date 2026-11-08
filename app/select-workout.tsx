@@ -1,7 +1,7 @@
 import { AlertManager as Alert } from '@/components/GlobalAlert';
-import { getWorkoutCategories, getWorkoutTemplates, WorkoutCategory, WorkoutTemplate } from '@/db/database';
+import { getWorkoutTemplates, WorkoutTemplate } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
-import { DISTANCE_TYPES, getFixedDuration, logTemplateWorkout, parseTemplateMeta } from '@/utils/workoutTemplates';
+import { DISTANCE_TYPES, getFixedDuration, logTemplateWorkout, parseTemplateMeta, WORKOUT_TYPE_LABELS, WORKOUT_TYPES, WorkoutType } from '@/utils/workoutTemplates';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
@@ -16,10 +16,9 @@ export default function SelectWorkoutModal() {
     const router = useRouter();
     const user = useUserStore(state => state.user);
 
-    const [categories, setCategories] = useState<WorkoutCategory[]>([]);
     const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<'all' | number>('all');
+    const [selectedTypeFilter, setSelectedTypeFilter] = useState<'all' | WorkoutType>('all');
     const [expandedId, setExpandedId] = useState<number | null>(null);
 
     const [isDurationModalVisible, setDurationModalVisible] = useState(false);
@@ -31,9 +30,7 @@ export default function SelectWorkoutModal() {
 
     const loadData = async () => {
         try {
-            const cats = await getWorkoutCategories();
             const temps = await getWorkoutTemplates();
-            setCategories(cats);
             setTemplates(temps);
         } catch (e) {
             console.error('Failed to load my workouts modal', e);
@@ -107,8 +104,8 @@ export default function SelectWorkoutModal() {
 
     const filteredTemplates = templates.filter(t => {
         const matchesSearch = t.name.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesCategory = selectedCategoryFilter === 'all' || t.category_id === selectedCategoryFilter;
-        return matchesSearch && matchesCategory;
+        const matchesType = selectedTypeFilter === 'all' || parseTemplateMeta(t).type === selectedTypeFilter;
+        return matchesSearch && matchesType;
     });
 
     const renderTemplate = ({ item }: { item: WorkoutTemplate }) => {
@@ -124,7 +121,7 @@ export default function SelectWorkoutModal() {
                 <View style={styles.cardHeader}>
                     <View style={{ flex: 1 }}>
                         <Text style={styles.templateName}>{item.name}</Text>
-                        <Text style={styles.templateCategory}>{item.category_name || 'כללי'}</Text>
+                        <Text style={styles.templateCategory}>{WORKOUT_TYPE_LABELS[parseTemplateMeta(item).type]}</Text>
                     </View>
                     <TouchableOpacity style={styles.selectBtn} onPress={(e) => { e.stopPropagation(); handleSelectForLog(item); }}>
                         <Ionicons name="checkmark" size={16} color="#fff" />
@@ -176,18 +173,18 @@ export default function SelectWorkoutModal() {
                 <View style={styles.filterContainer}>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
                         <TouchableOpacity
-                            style={[styles.filterChip, selectedCategoryFilter === 'all' && styles.filterChipActive]}
-                            onPress={() => setSelectedCategoryFilter('all')}
+                            style={[styles.filterChip, selectedTypeFilter === 'all' && styles.filterChipActive]}
+                            onPress={() => setSelectedTypeFilter('all')}
                         >
-                            <Text style={[styles.filterChipText, selectedCategoryFilter === 'all' && styles.filterChipTextActive]}>הכל</Text>
+                            <Text style={[styles.filterChipText, selectedTypeFilter === 'all' && styles.filterChipTextActive]}>הכל</Text>
                         </TouchableOpacity>
-                        {categories.map(cat => (
+                        {WORKOUT_TYPES.map(t => (
                             <TouchableOpacity
-                                key={cat.id}
-                                style={[styles.filterChip, selectedCategoryFilter === cat.id && styles.filterChipActive]}
-                                onPress={() => setSelectedCategoryFilter(cat.id!)}
+                                key={t.id}
+                                style={[styles.filterChip, selectedTypeFilter === t.id && styles.filterChipActive]}
+                                onPress={() => setSelectedTypeFilter(t.id)}
                             >
-                                <Text style={[styles.filterChipText, selectedCategoryFilter === cat.id && styles.filterChipTextActive]}>{cat.name}</Text>
+                                <Text style={[styles.filterChipText, selectedTypeFilter === t.id && styles.filterChipTextActive]}>{t.label}</Text>
                             </TouchableOpacity>
                         ))}
                     </ScrollView>

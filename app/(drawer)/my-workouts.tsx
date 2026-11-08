@@ -1,8 +1,8 @@
 import { AlertManager as Alert } from '@/components/GlobalAlert';
-import { addWorkoutCategory, addWorkoutTemplate, deleteWorkoutCategory, deleteWorkoutTemplate, getWorkoutCategories, getWorkoutTemplates, updateWorkoutTemplate, WorkoutCategory, WorkoutTemplate } from '@/db/database';
+import { addWorkoutTemplate, deleteWorkoutTemplate, getWorkoutTemplates, updateWorkoutTemplate, WorkoutTemplate } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
 import { generateWorkoutSummary } from '@/utils/ai';
-import { DISTANCE_TYPES, getFixedDuration, logTemplateWorkout, parseTemplateMeta, WORKOUT_TYPE_LABELS } from '@/utils/workoutTemplates';
+import { DISTANCE_TYPES, getFixedDuration, logTemplateWorkout, parseTemplateMeta, WORKOUT_TYPE_LABELS, WORKOUT_TYPES, WorkoutType } from '@/utils/workoutTemplates';
 import { Ionicons } from '@expo/vector-icons';
 import { DrawerActions, useNavigation } from '@react-navigation/native';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -20,18 +20,15 @@ export default function MyWorkoutsScreen() {
     const navigation = useNavigation();
     const user = useUserStore(state => state.user);
 
-    const [categories, setCategories] = useState<WorkoutCategory[]>([]);
     const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<'all' | number>('all');
+    // Filter by the built-in workout type (gym, running, ...)
+    const [selectedTypeFilter, setSelectedTypeFilter] = useState<'all' | WorkoutType>('all');
     const [expandedId, setExpandedId] = useState<number | null>(null);
     const [showFilters, setShowFilters] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
 
     // Modals
-    const [isCategoryModalVisible, setCategoryModalVisible] = useState(false);
-    const [categoryNameInput, setCategoryNameInput] = useState('');
-    const [isManageCategoriesVisible, setManageCategoriesVisible] = useState(false);
 
     const [isTemplateModalVisible, setTemplateModalVisible] = useState(false);
 
@@ -43,9 +40,7 @@ export default function MyWorkoutsScreen() {
 
     const loadData = async () => {
         try {
-            const cats = await getWorkoutCategories();
             const temps = await getWorkoutTemplates();
-            setCategories(cats);
             setTemplates(temps);
         } catch (e) {
             console.error('Failed to load my workouts', e);
@@ -54,27 +49,8 @@ export default function MyWorkoutsScreen() {
 
     useFocusEffect(useCallback(() => { loadData(); }, []));
 
-    // Category Actions
-    const handleCreateCategory = async () => {
-        if (!categoryNameInput.trim()) return;
-        await addWorkoutCategory(categoryNameInput.trim());
-        setCategoryNameInput('');
-        setCategoryModalVisible(false);
-        setManageCategoriesVisible(false); // Can open from either
-        loadData();
-    };
-
-    const handleDeleteCategory = async (id: number) => {
-        try {
-            await deleteWorkoutCategory(id);
-            loadData();
-        } catch (e) {
-            Alert.alert('שגיאה', 'לא ניתן למחוק קטגוריה בשימוש.');
-        }
-    };
-
     // Template Actions (create or edit)
-    const handleSaveTemplate = async (name: string, categoryId: number, flattenedExercises: Exercise[], descriptionStr?: string | null) => {
+    const handleSaveTemplate = async (name: string, flattenedExercises: Exercise[], descriptionStr?: string | null) => {
         setIsGenerating(true);
         try {
             const exercisesJson = JSON.stringify(flattenedExercises);
@@ -88,7 +64,6 @@ export default function MyWorkoutsScreen() {
                 const summary = exercisesChanged ? await generateWorkoutSummary(flattenedExercises) : null;
                 await updateWorkoutTemplate(editingTemplate.id!, {
                     name: name.trim(),
-                    category_id: categoryId,
                     exercises: exercisesJson,
                     description: descriptionStr || null,
                     ...(summary ? { summary } : {}),
@@ -97,7 +72,7 @@ export default function MyWorkoutsScreen() {
                 const summary = await generateWorkoutSummary(flattenedExercises);
                 await addWorkoutTemplate({
                     name: name.trim(),
-                    category_id: categoryId,
+                    category_id: null,
                     exercises: exercisesJson,
                     summary: summary || 'אימון שהוקם על ידי המשתמש',
                     description: descriptionStr || null
@@ -174,14 +149,14 @@ export default function MyWorkoutsScreen() {
     };
 
     const toggleFilters = () => {
-        if (showFilters) { setSelectedCategoryFilter('all'); setShowFilters(false); } 
+        if (showFilters) { setSelectedTypeFilter('all'); setShowFilters(false); } 
         else { setShowFilters(true); }
     };
 
     const filteredTemplates = templates.filter(t => {
         const matchesSearch = t.name.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesCategory = selectedCategoryFilter === 'all' || t.category_id === selectedCategoryFilter;
-        return matchesSearch && matchesCategory;
+        const matchesType = selectedTypeFilter === 'all' || parseTemplateMeta(t).type === selectedTypeFilter;
+        return matchesSearch && matchesType;
     });
 
     const renderTemplate = ({ item }: { item: WorkoutTemplate }) => {
@@ -197,7 +172,7 @@ export default function MyWorkoutsScreen() {
                     <View style={styles.cardHeaderCenter}>
                         <Text style={styles.templateName}>{item.name}</Text>
                         <Text style={styles.templateCategory}>
-                            {item.category_name || 'כללי'} · {WORKOUT_TYPE_LABELS[meta.type]}
+                            {WORKOUT_TYPE_LABELS[meta.type]}
                             {fixedDuration ? ` · ${fixedDuration} דק'` : ''}
                             {meta.distance && DISTANCE_TYPES.includes(meta.type) ? ` · ${meta.distance}` : ''}
                         </Text>
@@ -259,15 +234,6 @@ export default function MyWorkoutsScreen() {
             </View>
 
             <View style={styles.actionRow}>
-                <View style={{ flexDirection: 'row-reverse', gap: 6 }}>
-                    <TouchableOpacity style={styles.actionBtnSecondary} onPress={() => setCategoryModalVisible(true)}>
-                        <Ionicons name="folder-open-outline" size={18} color="#3b82f6" />
-                        <Text style={styles.actionBtnTextSecondary}>קטגוריה</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.actionBtnSecondary, { paddingHorizontal: 10 }]} onPress={() => setManageCategoriesVisible(true)}>
-                        <Ionicons name="settings-outline" size={18} color="#3b82f6" />
-                    </TouchableOpacity>
-                </View>
                 <TouchableOpacity style={styles.actionBtnPrimary} onPress={() => { setEditingTemplate(null); setTemplateModalVisible(true); }}>
                     <Ionicons name="add" size={18} color="#fff" />
                     <Text style={styles.actionBtnTextPrimary}>צור אימון</Text>
@@ -288,12 +254,12 @@ export default function MyWorkoutsScreen() {
             {showFilters && (
                 <View style={styles.filterContainer}>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
-                        <TouchableOpacity style={[styles.filterChip, selectedCategoryFilter === 'all' && styles.filterChipActive]} onPress={() => setSelectedCategoryFilter('all')}>
-                            <Text style={[styles.filterChipText, selectedCategoryFilter === 'all' && styles.filterChipTextActive]}>הכל</Text>
+                        <TouchableOpacity style={[styles.filterChip, selectedTypeFilter === 'all' && styles.filterChipActive]} onPress={() => setSelectedTypeFilter('all')}>
+                            <Text style={[styles.filterChipText, selectedTypeFilter === 'all' && styles.filterChipTextActive]}>הכל</Text>
                         </TouchableOpacity>
-                        {categories.map(cat => (
-                            <TouchableOpacity key={cat.id} style={[styles.filterChip, selectedCategoryFilter === cat.id && styles.filterChipActive]} onPress={() => setSelectedCategoryFilter(cat.id!)}>
-                                <Text style={[styles.filterChipText, selectedCategoryFilter === cat.id && styles.filterChipTextActive]}>{cat.name}</Text>
+                        {WORKOUT_TYPES.map(t => (
+                            <TouchableOpacity key={t.id} style={[styles.filterChip, selectedTypeFilter === t.id && styles.filterChipActive]} onPress={() => setSelectedTypeFilter(t.id)}>
+                                <Text style={[styles.filterChipText, selectedTypeFilter === t.id && styles.filterChipTextActive]}>{t.label}</Text>
                             </TouchableOpacity>
                         ))}
                     </ScrollView>
@@ -312,52 +278,11 @@ export default function MyWorkoutsScreen() {
 
             <WorkoutForm 
                 visible={isTemplateModalVisible} 
-                categories={categories} 
                 isGenerating={isGenerating}
                 onClose={() => { setTemplateModalVisible(false); setEditingTemplate(null); }}
                 onSave={handleSaveTemplate}
                 initialTemplate={editingTemplate}
             />
-
-            {/* Modal: Create Category */}
-            <Modal visible={isCategoryModalVisible} transparent animationType="fade">
-                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>יצירת קטגוריה חדשה</Text>
-                        <TextInput style={styles.modalInput} placeholder="שם הקטגוריה (למשל: כוח)" value={categoryNameInput} onChangeText={setCategoryNameInput} autoFocus />
-                        <View style={styles.modalActions}>
-                            <TouchableOpacity style={styles.modalCancel} onPress={() => setCategoryModalVisible(false)}><Text style={styles.modalCancelText}>ביטול</Text></TouchableOpacity>
-                            <TouchableOpacity style={styles.modalSubmit} onPress={handleCreateCategory}><Text style={styles.modalSubmitText}>שמור</Text></TouchableOpacity>
-                        </View>
-                    </View>
-                </KeyboardAvoidingView>
-            </Modal>
-
-            {/* Modal: Manage Categories */}
-            <Modal visible={isManageCategoriesVisible} transparent animationType="fade">
-                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
-                    <View style={styles.modalContentLarge}>
-                        <View style={{ flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                            <Text style={styles.modalTitle}>ניהול קטגוריות</Text>
-                            <TouchableOpacity onPress={() => setManageCategoriesVisible(false)}><Ionicons name="close" size={24} color="#64748b" /></TouchableOpacity>
-                        </View>
-                        <ScrollView>
-                            {categories.length === 0 ? <Text style={{ textAlign: 'center', color: '#64748b' }}>אין קטגוריות משוייכות</Text> : categories.map(cat => (
-                                <View key={cat.id} style={{ flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
-                                    <Text style={{ fontSize: 16, color: '#1e293b' }}>{cat.name}</Text>
-                                    <TouchableOpacity onPress={() => handleDeleteCategory(cat.id!)}>
-                                        <Ionicons name="trash-outline" size={20} color="#ef4444" />
-                                    </TouchableOpacity>
-                                </View>
-                            ))}
-                        </ScrollView>
-                        <TouchableOpacity style={[styles.fullSubmitBtn, { marginTop: 16 }]} onPress={() => setCategoryModalVisible(true)}>
-                            <Text style={styles.fullSubmitText}>+ קטגוריה חדשה</Text>
-                        </TouchableOpacity>
-                    </View>
-                </KeyboardAvoidingView>
-            </Modal>
-
 
             {/* Modal: Log Workout */}
             <Modal visible={isLogModalVisible} transparent animationType="fade">

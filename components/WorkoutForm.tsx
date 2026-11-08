@@ -1,5 +1,6 @@
-import { WorkoutCategory, WorkoutTemplate } from '@/db/database';
-import { parseTemplateMeta } from '@/utils/workoutTemplates';
+import { WorkoutTemplate } from '@/db/database';
+import { AlertManager as Alert } from '@/components/GlobalAlert';
+import { DISTANCE_TYPES, parseTemplateMeta, WORKOUT_TYPE_LABELS, WORKOUT_TYPES, WorkoutType } from '@/utils/workoutTemplates';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -31,23 +32,21 @@ interface MuscleGroupBlock {
 
 interface WorkoutFormProps {
     visible: boolean;
-    categories: WorkoutCategory[];
     isGenerating: boolean;
     onClose: () => void;
-    onSave: (name: string, categoryId: number, flattenedExercises: Exercise[], description?: string | null) => Promise<void>;
+    onSave: (name: string, flattenedExercises: Exercise[], description?: string | null) => Promise<void>;
     /** When set, the form opens in edit mode pre-filled with this template. */
     initialTemplate?: WorkoutTemplate | null;
 }
 
-export default function WorkoutForm({ visible, categories, isGenerating, onClose, onSave, initialTemplate }: WorkoutFormProps) {
+export default function WorkoutForm({ visible, isGenerating, onClose, onSave, initialTemplate }: WorkoutFormProps) {
     const isEditMode = !!initialTemplate;
     const wasEditingRef = useRef(false);
     const [templateName, setTemplateName] = useState('');
-    const [templateCategoryId, setTemplateCategoryId] = useState<number | null>(null);
     const [blocks, setBlocks] = useState<MuscleGroupBlock[]>([
         { id: Date.now().toString(), muscleGroup: '', exercises: [] }
     ]);
-    const [workoutType, setWorkoutType] = useState<'gym' | 'running' | 'cycling' | 'walking' | 'other'>('gym');
+    const [workoutType, setWorkoutType] = useState<WorkoutType>('gym');
     const [requireTimeOnLog, setRequireTimeOnLog] = useState(true);
     const [presetDuration, setPresetDuration] = useState('');
     const [distance, setDistance] = useState('');
@@ -55,7 +54,6 @@ export default function WorkoutForm({ visible, categories, isGenerating, onClose
 
     const clearFields = () => {
         setTemplateName('');
-        setTemplateCategoryId(null);
         setBlocks([{ id: Date.now().toString(), muscleGroup: '', exercises: [] }]);
         setWorkoutType('gym');
         setRequireTimeOnLog(true);
@@ -70,7 +68,6 @@ export default function WorkoutForm({ visible, categories, isGenerating, onClose
         if (initialTemplate) {
             const meta = parseTemplateMeta(initialTemplate);
             setTemplateName(initialTemplate.name || '');
-            setTemplateCategoryId(initialTemplate.category_id ?? null);
             setWorkoutType(meta.type);
             setRequireTimeOnLog(meta.requireTimeOnLog);
             setPresetDuration(meta.presetDuration || '');
@@ -153,7 +150,8 @@ export default function WorkoutForm({ visible, categories, isGenerating, onClose
     };
 
     const handleSubmit = async () => {
-        if (!templateName.trim() || !templateCategoryId) {
+        if (!templateName.trim()) {
+            Alert.alert('חסר שם', 'יש לתת שם לאימון.');
             return;
         }
 
@@ -162,11 +160,7 @@ export default function WorkoutForm({ visible, categories, isGenerating, onClose
         let descObj = null;
 
         if (workoutType !== 'gym') {
-            let nameDesc = '';
-            if (workoutType === 'running') nameDesc = 'ריצה. ';
-            if (workoutType === 'cycling') nameDesc = 'רכיבה. ';
-            if (workoutType === 'walking') nameDesc = 'הליכה. ';
-            if (workoutType === 'other') nameDesc = 'אחר. ';
+            let nameDesc = WORKOUT_TYPE_LABELS[workoutType] + '. ';
             
             if (distance) nameDesc += 'מרחק: ' + distance + ' ק"מ. ';
             if (!requireTimeOnLog && presetDuration) nameDesc += 'זמן קבוע: ' + presetDuration + ' דקות. ';
@@ -214,7 +208,7 @@ export default function WorkoutForm({ visible, categories, isGenerating, onClose
         }
 
         const descriptionStr = descObj ? JSON.stringify(descObj) : null;
-        await onSave(templateName, templateCategoryId, flattenedExercises, descriptionStr);
+        await onSave(templateName, flattenedExercises, descriptionStr);
     };
 
     const resetForm = () => {
@@ -244,23 +238,17 @@ export default function WorkoutForm({ visible, categories, isGenerating, onClose
                             />
 
                             
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12, marginBottom: 8 }} contentContainerStyle={{ gap: 8, flexDirection: 'row-reverse' }}>
-                                {[
-                                    { id: 'gym', label: 'חדר כושר', icon: 'barbell-outline' },
-                                    { id: 'running', label: 'ריצה', icon: 'walk-outline' },
-                                    { id: 'cycling', label: 'רכיבה', icon: 'bicycle-outline' },
-                                    { id: 'walking', label: 'הליכה', icon: 'footsteps-outline' },
-                                    { id: 'other', label: 'אחר', icon: 'list-outline' }
-                                ].map(t => (
+                            <View style={{ marginTop: 12, marginBottom: 8, flexDirection: 'row-reverse', flexWrap: 'wrap', gap: 8 }}>
+                                {WORKOUT_TYPES.map(t => (
                                     <TouchableOpacity 
                                         key={t.id} 
-                                        style={[styles.tabBtn, workoutType === t.id && styles.tabBtnActive, { paddingHorizontal: 12 }]} 
+                                        style={[styles.tabBtn, workoutType === t.id && styles.tabBtnActive, { paddingHorizontal: 12, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', backgroundColor: workoutType === t.id ? '#3b82f6' : '#f1f5f9' }]} 
                                         onPress={() => setWorkoutType(t.id as any)}>
                                         <Ionicons name={t.icon as any} size={16} color={workoutType === t.id ? '#fff' : '#64748b'} />
                                         <Text style={[styles.tabBtnText, workoutType === t.id && styles.tabBtnTextActive]}> {t.label}</Text>
                                     </TouchableOpacity>
                                 ))}
-                            </ScrollView>
+                            </View>
 
                             <View style={{ marginBottom: 16, backgroundColor: '#f8fafc', padding: 12, borderRadius: 8 }}>
                                 <TouchableOpacity 
@@ -287,25 +275,13 @@ export default function WorkoutForm({ visible, categories, isGenerating, onClose
                             </View>
 
 
-                            <Text style={[styles.inputLabel, { marginTop: 8 }]}>קטגוריה</Text>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 8 }}>
-                                {categories.map(cat => (
-                                    <TouchableOpacity 
-                                        key={cat.id} 
-                                        style={[styles.catSelectChip, templateCategoryId === cat.id && styles.catSelectChipActive]} 
-                                        onPress={() => setTemplateCategoryId(cat.id!)}
-                                    >
-                                        <Text style={[styles.catSelectText, templateCategoryId === cat.id && styles.catSelectTextActive]}>{cat.name}</Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </ScrollView>
                         </View>
 
                         <Text style={styles.sectionHeaderTitle}>תוכנית התרגילים</Text>
 
                         {workoutType !== 'gym' ? (
                             <View style={styles.blockCard}>
-                                {['running', 'cycling', 'walking'].includes(workoutType) && (
+                                {DISTANCE_TYPES.includes(workoutType) && (
                                     <View style={{ marginBottom: 12 }}>
                                         <Text style={styles.inputLabel}>מרחק (ק"מ / מטרים)</Text>
                                         <TextInput 

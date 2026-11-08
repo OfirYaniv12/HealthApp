@@ -51,14 +51,8 @@ export default function MyRecipesScreen() {
     const [selectedRecipeTotals, setSelectedRecipeTotals] = useState<Recipe | null>(null);
     const [fullscreenImageUri, setFullscreenImageUri] = useState<string | null>(null);
 
-    // Edit Mode State
-    const [editingRecipeId, setEditingRecipeId] = useState<number | null>(null);
-    const [editRecipeName, setEditRecipeName] = useState('');
-    const [editRecipeCategoryId, setEditRecipeCategoryId] = useState<number | null>(null);
-    const [editRecipeIngredients, setEditRecipeIngredients] = useState([{ id: Date.now().toString(), amount: '', unit: '', name: '' }]);
-    const [editRecipeInstructions, setEditRecipeInstructions] = useState('');
-    const [editManualNutrients, setEditManualNutrients] = useState({ calories: '', protein: '', carbs: '', fat: '', fiber: '', sodium: '', sugar: '' });
-    const [isSavingEdit, setIsSavingEdit] = useState(false);
+    // When set, the recipe window is editing this recipe instead of creating a new one
+    const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
 
     const loadData = async () => {
         try {
@@ -102,10 +96,78 @@ export default function MyRecipesScreen() {
         }
     };
 
+    // ---- One window for both creating and editing a recipe ----
+    const resetRecipeForm = () => {
+        setEditingRecipe(null);
+        setRecipeNameInput('');
+        setRecipeCategoryId(null);
+        setRecipeIngredientsList([{ id: Date.now().toString(), amount: '', unit: '', name: '' }]);
+        setRecipeInstructionsInput('');
+        setSelectedImageUri(null);
+        setIsManualMode(false);
+        setManualNutrients({ calories: '', protein: '', carbs: '', fat: '', fiber: '', sodium: '', sugar: '' });
+    };
+
+    const closeRecipeModal = () => {
+        if (isProcessingAI) return;
+        setRecipeModalVisible(false);
+        resetRecipeForm();
+    };
+
+    const openCreateRecipe = () => {
+        resetRecipeForm();
+        setRecipeModalVisible(true);
+    };
+
+    const parseIngredientLines = (text: string) => {
+        const mapped = text.split(/\\n|\n/).filter(l => l.trim()).map((l, i) => {
+            const parts = l.replace(/^- /, '').trim().split(/\s+/);
+            if (parts.length >= 3) return { id: `${i}-${Date.now()}`, amount: parts[0], unit: parts[1], name: parts.slice(2).join(' ') };
+            if (parts.length === 2) return { id: `${i}-${Date.now()}`, amount: parts[0], unit: '', name: parts[1] };
+            return { id: `${i}-${Date.now()}`, amount: '', unit: '', name: parts.join(' ') };
+        });
+        return mapped.length > 0 ? mapped : [{ id: Date.now().toString(), amount: '', unit: '', name: '' }];
+    };
+
+    const openEditRecipe = (item: Recipe) => {
+        setEditingRecipe(item);
+        setRecipeNameInput(item.name);
+        setRecipeCategoryId(item.category_id);
+        setRecipeInstructionsInput(item.instructions || '');
+        // Photos saved from the phone as local file paths can't be shown elsewhere, so don't carry them into the form
+        setSelectedImageUri(item.image_uri && !item.image_uri.startsWith('file:') ? item.image_uri : null);
+        setIsManualMode(!item.nutritional_values);
+        setManualNutrients({
+            calories: String(item.calories ?? ''), protein: String(item.protein ?? ''), carbs: String(item.carbs ?? ''),
+            fat: String(item.fat ?? ''), fiber: String(item.fiber ?? ''), sodium: String(item.sodium ?? ''), sugar: String(item.sugar ?? ''),
+        });
+        setRecipeIngredientsList(item.nutritional_values ? parseIngredientLines(item.ingredients_list || '') : [{ id: Date.now().toString(), amount: '', unit: '', name: '' }]);
+        setRecipeModalVisible(true);
+    };
+
+    const getOrCreateCategoryId = async () => {
+        if (recipeCategoryId) return recipeCategoryId;
+        const existingCategories = await getRecipeCategories();
+        let otherCategory = existingCategories.find(c => c.name === 'אחר');
+        if (!otherCategory) otherCategory = await addRecipeCategory('אחר');
+        return otherCategory.id!;
+    };
+
+    const saveImageIfChanged = async (id: number, original: string | null | undefined) => {
+        const current = selectedImageUri || null;
+        const originalShown = original && !original.startsWith('file:') ? original : null;
+        if (current !== originalShown) await updateRecipeImage(id, current);
+    };
+
     const handleCreateRecipe = async () => {
         const validIngredients = recipeIngredientsList.filter(i => i.amount.trim() && i.name.trim());
         if (!recipeNameInput.trim() || validIngredients.length === 0) {
             Alert.alert('שגיאה', 'יש להזין שם ולפחות מרכיב אחד למתכון.');
+            return;
+        }
+
+        if (editingRecipe) {
+            await handleUpdateRecipeAI(validIngredients);
             return;
         }
 
@@ -129,7 +191,7 @@ export default function MyRecipesScreen() {
 
             const breakdownJson = JSON.stringify(aiAnalysis.ingredientBreakdown);
 
-            const finalImageUri = null;
+            const finalImageUri = selectedImageUri || null;
 
             await addRecipe({
                 name: recipeNameInput.trim(),
@@ -169,9 +231,77 @@ export default function MyRecipesScreen() {
         }
     };
 
+    // Edit of a recipe in AI mode: re-analyze only if the ingredients changed
+    const handleUpdateRecipeAI = async (validIngredients: { amount: string; unit: string; name: string }[]) => {
+        const item = editingRecipe!;
+        setIsProcessingAI(true);
+        try {
+            const categoryId = await getOrCreateCategoryId();
+            const combinedIngs = validIngredients.map(i => `${i.amount} ${i.unit} ${i.name}`.replace(/\s+/g, ' ').trim()).join('\n');
+            const normalize = (s: string) => s.replace(/\\n/g, '\n').split('\n').map(l => l.replace(/^- /, '').replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
+            const ingredientsChanged = !item.nutritional_values || normalize(combinedIngs) !== normalize(item.ingredients_list || '');
+
+            if (ingredientsChanged) {
+                const aiAnalysis = await analyzeRecipe(
+                    recipeNameInput.trim(),
+                    validIngredients.map(i => ({ quantity: `${i.amount} ${i.unit}`.trim(), name: i.name })),
+                    recipeInstructionsInput.trim() || null
+                );
+                if (!aiAnalysis) throw new Error('AI parsing failed');
+                await updateRecipe(
+                    item.id!, recipeNameInput.trim(), categoryId, combinedIngs, recipeInstructionsInput.trim() || null,
+                    aiAnalysis.totals.calories, aiAnalysis.totals.protein, aiAnalysis.totals.carbs, aiAnalysis.totals.fat,
+                    aiAnalysis.totals.fiber, aiAnalysis.totals.sodium, aiAnalysis.totals.sugar,
+                    { nutritional_values: JSON.stringify(aiAnalysis.ingredientBreakdown), health_score: aiAnalysis.healthScore }
+                );
+            } else {
+                await updateRecipe(
+                    item.id!, recipeNameInput.trim(), categoryId, item.ingredients_list, recipeInstructionsInput.trim() || null,
+                    item.calories, item.protein, item.carbs, item.fat, item.fiber, item.sodium, item.sugar
+                );
+            }
+            await saveImageIfChanged(item.id!, item.image_uri);
+            setRecipeModalVisible(false);
+            resetRecipeForm();
+            loadData();
+        } catch (e: any) {
+            console.error('Recipe update error', e);
+            Alert.alert('שגיאה', e?.message === 'AI_QUOTA_EXCEEDED'
+                ? 'מכסה השימוש ב-AI הסתיימה זמנית. נסה שוב בעוד כדקה.'
+                : 'לא הצלחנו לעדכן את המתכון. נסה שוב.');
+        } finally {
+            setIsProcessingAI(false);
+        }
+    };
+
     const handleCreateRecipeManual = async () => {
         if (!recipeNameInput.trim()) {
             Alert.alert('שגיאה', 'יש להזין שם למתכון.');
+            return;
+        }
+
+        if (editingRecipe) {
+            const item = editingRecipe;
+            const num = (v: string) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+            try {
+                const categoryId = await getOrCreateCategoryId();
+                await updateRecipe(
+                    item.id!, recipeNameInput.trim(), categoryId,
+                    item.nutritional_values ? 'הוזן ידנית' : item.ingredients_list,
+                    item.instructions || null,
+                    num(manualNutrients.calories), num(manualNutrients.protein), num(manualNutrients.carbs), num(manualNutrients.fat),
+                    num(manualNutrients.fiber), num(manualNutrients.sodium), num(manualNutrients.sugar),
+                    // Switching an AI recipe to manual values: drop the old AI breakdown so it can't contradict them
+                    item.nutritional_values ? { nutritional_values: null, health_score: null } : undefined
+                );
+                await saveImageIfChanged(item.id!, item.image_uri);
+                setRecipeModalVisible(false);
+                resetRecipeForm();
+                loadData();
+            } catch (e) {
+                console.error('Manual recipe update error', e);
+                Alert.alert('שגיאה', 'לא הצלחנו לעדכן את המתכון. נסה שוב.');
+            }
             return;
         }
 
@@ -191,7 +321,7 @@ export default function MyRecipesScreen() {
                 return isNaN(num) ? 0 : num;
             };
 
-            const finalImageUri = null;
+            const finalImageUri = selectedImageUri || null;
 
             await addRecipe({
                 name: recipeNameInput.trim(),
@@ -244,129 +374,6 @@ export default function MyRecipesScreen() {
                 }
             ]
         );
-    };
-
-    const handleChangeImage = (id: number, isEditing: boolean = false) => {
-        if (!isEditing) return;
-        const recipe = recipes.find(r => r.id === id);
-        
-        const options: { text: string; style?: 'cancel' | 'default' | 'destructive'; onPress?: () => void }[] = [
-            { text: 'ביטול', style: 'cancel' }
-        ];
-
-        if (recipe?.image_uri) {
-            options.push({
-                text: 'הסר', style: 'destructive', onPress: async () => {
-                    await updateRecipeImage(id, null);
-                    loadData();
-                }
-            });
-
-        }
-
-        options.push({ text: 'מצלמה', onPress: () => captureOrPickImage(id, true) });
-        options.push({ text: 'גלריה', onPress: () => captureOrPickImage(id, false) });
-
-        Alert.alert(
-            'עריכת תמונה',
-            'בחר מקור לתמונה',
-            options as any
-        );
-    };
-
-    const captureOrPickImage = async (id: number, useCamera: boolean) => {
-        if (useCamera) {
-            const { status } = await ImagePicker.requestCameraPermissionsAsync();
-            if (status !== 'granted') {
-                Alert.alert('שגיאה', 'אין הרשאה לשימוש במצלמה.');
-                return;
-            }
-        }
-
-        let result = useCamera
-            ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8, base64: true })
-            : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8, base64: true });
-
-        if (!result.canceled && result.assets && result.assets.length > 0) {
-            await updateRecipeImage(id, result.assets[0].base64 ? `data:image/jpeg;base64,${result.assets[0].base64}` : result.assets[0].uri);
-            loadData();
-        }
-    };
-
-    const handleSaveRecipeEdit = async (item: Recipe) => {
-        if (!editRecipeName.trim()) {
-            Alert.alert('שגיאה', 'יש להזין שם למתכון.');
-            return;
-        }
-
-        const parseVal = (v: any) => v && !isNaN(parseFloat(v)) ? parseFloat(v) : 0;
-        setIsSavingEdit(true);
-        try {
-            if (!item.nutritional_values) {
-                // Manually entered recipe: the user edits the nutrient values directly
-                await updateRecipe(
-                    item.id!,
-                    editRecipeName.trim(),
-                    editRecipeCategoryId,
-                    item.ingredients_list,
-                    editRecipeInstructions.trim() || null,
-                    parseVal(editManualNutrients.calories),
-                    parseVal(editManualNutrients.protein),
-                    parseVal(editManualNutrients.carbs),
-                    parseVal(editManualNutrients.fat),
-                    parseVal(editManualNutrients.fiber),
-                    parseVal(editManualNutrients.sodium),
-                    parseVal(editManualNutrients.sugar)
-                );
-            } else {
-                const finalIngs = editRecipeIngredients.filter(i => i.amount.trim() && i.name.trim());
-                if (finalIngs.length === 0) {
-                    Alert.alert('שגיאה', 'יש להשאיר לפחות מרכיב אחד במתכון.');
-                    return;
-                }
-                const combinedIngs = finalIngs.map(i => `${i.amount} ${i.unit} ${i.name}`.replace(/\s+/g, ' ').trim()).join('\n');
-                const normalize = (s: string) => s.replace(/\\n/g, '\n').split('\n').map(l => l.replace(/^- /, '').replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
-                const ingredientsChanged = normalize(combinedIngs) !== normalize(item.ingredients_list);
-
-                if (ingredientsChanged) {
-                    // Ingredients changed, so the old AI nutrition values are no longer correct: re-analyze
-                    const aiAnalysis = await analyzeRecipe(
-                        editRecipeName.trim(),
-                        finalIngs.map(i => ({ quantity: `${i.amount} ${i.unit}`.trim(), name: i.name })),
-                        editRecipeInstructions.trim() || null
-                    );
-                    if (!aiAnalysis) throw new Error('AI parsing failed');
-                    await updateRecipe(
-                        item.id!,
-                        editRecipeName.trim(),
-                        editRecipeCategoryId,
-                        combinedIngs,
-                        editRecipeInstructions.trim() || null,
-                        aiAnalysis.totals.calories, aiAnalysis.totals.protein, aiAnalysis.totals.carbs, aiAnalysis.totals.fat,
-                        aiAnalysis.totals.fiber, aiAnalysis.totals.sodium, aiAnalysis.totals.sugar,
-                        { nutritional_values: JSON.stringify(aiAnalysis.ingredientBreakdown), health_score: aiAnalysis.healthScore }
-                    );
-                } else {
-                    await updateRecipe(
-                        item.id!,
-                        editRecipeName.trim(),
-                        editRecipeCategoryId,
-                        item.ingredients_list,
-                        editRecipeInstructions.trim() || null,
-                        item.calories, item.protein, item.carbs, item.fat, item.fiber, item.sodium, item.sugar
-                    );
-                }
-            }
-            setEditingRecipeId(null);
-            loadData();
-        } catch (e: any) {
-            console.error('Recipe update error', e);
-            Alert.alert('שגיאה', e?.message === 'AI_QUOTA_EXCEEDED'
-                ? 'מכסה השימוש ב-AI הסתיימה זמנית. נסה שוב בעוד כדקה.'
-                : 'לא הצלחנו לעדכן את המתכון. נסה שוב.');
-        } finally {
-            setIsSavingEdit(false);
-        }
     };
 
     const toggleFilters = () => {
@@ -434,29 +441,18 @@ export default function MyRecipesScreen() {
             } catch (e) { }
         }
 
-        // While this recipe is being edited the card must not react to taps:
-        // otherwise every tap inside an input bubbles up and collapses the card.
-        const isEditingThis = editingRecipeId === item.id;
-        const CardContainer: any = isEditingThis ? View : TouchableOpacity;
-        const cardContainerProps = isEditingThis
-            ? {}
-            : { onPress: () => setExpandedId(isExpanded ? null : item.id!), activeOpacity: 0.8 };
-
         return (
-            <CardContainer style={styles.card} {...cardContainerProps}>
+            <TouchableOpacity style={styles.card} onPress={() => setExpandedId(isExpanded ? null : item.id!)} activeOpacity={0.8}>
                 <View style={[styles.cardHeader, { flexDirection: 'row-reverse' }]}>
-                        {item.image_uri ? (
-                            <TouchableOpacity onPress={(e) => {
-                                e.stopPropagation();
-                                if (editingRecipeId === item.id) handleChangeImage(item.id!, true);
-                                else setFullscreenImageUri(item.image_uri!);
-                            }}>
+                        {item.image_uri && (Platform.OS !== 'web' || !item.image_uri.startsWith('file:')) ? (
+                            <TouchableOpacity onPress={(e) => { e.stopPropagation(); setFullscreenImageUri(item.image_uri!); }}>
                                 <Image source={{ uri: item.image_uri }} style={styles.recipeThumbnail} />
                             </TouchableOpacity>
                         ) : (
+                            // No photo (or a phone-only photo that can't load here): tap to add one in the edit window
                             <TouchableOpacity onPress={(e) => {
                                 e.stopPropagation();
-                                if (editingRecipeId === item.id) handleChangeImage(item.id!, true);
+                                openEditRecipe(item);
                             }} style={[styles.recipeThumbnail, { backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center' }]}>
                                 <Ionicons name="camera-outline" size={24} color="#cbd5e1" />
                             </TouchableOpacity>
@@ -466,161 +462,16 @@ export default function MyRecipesScreen() {
                         <Text style={styles.recipeCategory}>{item.category_name || 'כללי'}</Text>
                     </View>
                     <View style={{ flexDirection: 'row-reverse', alignItems: 'center', gap: 12 }}>
-                        {!editingRecipeId && (
-                            <TouchableOpacity onPress={(e) => {
-                                e.stopPropagation();
-                                setExpandedId(item.id!);
-                                setEditingRecipeId(item.id!);
-                                setEditRecipeName(item.name);
-                                setEditRecipeCategoryId(item.category_id);
-                                setEditRecipeInstructions(item.instructions || '');
-                                
-                                setEditManualNutrients({
-                                    calories: String(item.calories || ''),
-                                    protein: String(item.protein || ''),
-                                    carbs: String(item.carbs || ''),
-                                    fat: String(item.fat || ''),
-                                    fiber: String(item.fiber || ''),
-                                    sodium: String(item.sodium || ''),
-                                    sugar: String(item.sugar || '')
-                                });
-
-                                // parse ingredients block cleanly
-                                const lines = item.ingredients_list.split(/\\n|\n/);
-                                const mapped = lines.filter(l => l.trim()).map((l, i) => {
-                                    l = l.replace(/^- /, '').trim();
-                                    const parts = l.split(' ');
-                                    if (parts.length >= 3) {
-                                        return {
-                                            id: i.toString(),
-                                            amount: parts[0].trim(),
-                                            unit: parts[1].trim(),
-                                            name: parts.slice(2).join(' ').trim()
-                                        };
-                                    } else if (parts.length === 2) {
-                                        return { id: i.toString(), amount: parts[0].trim(), unit: '', name: parts[1].trim() };
-                                    }
-                                    return { id: i.toString(), amount: '', unit: '', name: l.trim() };
-                                });
-                                setEditRecipeIngredients(mapped.length > 0 ? mapped : [{ id: '0', amount: '', unit: '', name: '' }]);
-
-                            }} style={{ padding: 4 }}>
-                                <Ionicons name="create-outline" size={20} color="#3b82f6" />
-                            </TouchableOpacity>
-                        )}
+                        <TouchableOpacity onPress={(e) => { e.stopPropagation(); openEditRecipe(item); }} style={{ padding: 4 }}>
+                            <Ionicons name="create-outline" size={20} color="#3b82f6" />
+                        </TouchableOpacity>
                         <TouchableOpacity onPress={(e) => { e.stopPropagation(); handleDeleteRecipe(item.id!); }} style={{ padding: 4 }}>
                             <Ionicons name="trash-outline" size={20} color="#ef4444" />
                         </TouchableOpacity>
                     </View>
                 </View>
 
-                {isExpanded && editingRecipeId === item.id ? (
-                    <View style={styles.expandedContent}>
-                        <View style={styles.expandedDivider} />
-
-                        <Text style={styles.inputLabel}>שם המתכון</Text>
-                        <TextInput style={styles.inlineInput} value={editRecipeName} onChangeText={setEditRecipeName} />
-
-                        <Text style={styles.inputLabel}>קטגוריה</Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginBottom: 16 }}>
-                            {categories.map(cat => (
-                                <TouchableOpacity
-                                    key={cat.id}
-                                    style={[styles.catSelectChip, editRecipeCategoryId === cat.id && styles.catSelectChipActive]}
-                                    onPress={() => setEditRecipeCategoryId(cat.id!)}
-                                >
-                                    <Text style={[styles.catSelectText, editRecipeCategoryId === cat.id && styles.catSelectTextActive]}>{cat.name}</Text>
-                                </TouchableOpacity>
-                            ))}
-                        </ScrollView>
-
-                        {!item.nutritional_values ? (
-                            <View style={{ marginBottom: 16 }}>
-                                <Text style={styles.inputLabel}>ערכים תזונתיים</Text>
-                                <View style={{ flexDirection: 'row-reverse', flexWrap: 'wrap', gap: 12 }}>
-                                    {['calories', 'protein', 'carbs', 'fat', 'fiber', 'sodium', 'sugar'].map(key => (
-                                        <View key={key} style={{ width: '30%', marginBottom: 8 }}>
-                                            <Text style={{ fontSize: 13, color: '#64748b', marginBottom: 4 }}>{nutrientLabelsLoc[key] || key}</Text>
-                                            <TextInput
-                                                style={[styles.inlineInput, { marginBottom: 0 }]}
-                                                value={(editManualNutrients as any)[key]}
-                                                onChangeText={(text) => setEditManualNutrients({ ...editManualNutrients, [key]: text })}
-                                                keyboardType="decimal-pad"
-                                                placeholder="0"
-                                            />
-                                        </View>
-                                    ))}
-                                </View>
-                            </View>
-                        ) : (
-                            <View>
-                                <Text style={styles.inputLabel}>מרכיבים</Text>
-                                {editRecipeIngredients.map((ingredient, index) => (
-                                    <View key={ingredient.id} style={{ flexDirection: 'row-reverse', gap: 8, marginBottom: 12 }}>
-                                        <TextInput
-                                            style={[styles.inlineInput, { flex: 1.5, marginBottom: 0 }]}
-                                            placeholder="שם (תיאור)"
-                                            value={ingredient.name}
-                                            onChangeText={(text) => {
-                                                const nl = [...editRecipeIngredients];
-                                                nl[index].name = text;
-                                                setEditRecipeIngredients(nl);
-                                            }}
-                                        />
-                                        <TextInput
-                                            style={[styles.inlineInput, { flex: 0.8, marginBottom: 0 }]}
-                                            placeholder="כמות"
-                                            value={ingredient.amount}
-                                            onChangeText={(text) => {
-                                                const nl = [...editRecipeIngredients];
-                                                nl[index].amount = text;
-                                                setEditRecipeIngredients(nl);
-                                            }}
-                                            keyboardType="decimal-pad"
-                                        />
-                                        <TextInput
-                                            style={[styles.inlineInput, { flex: 0.8, marginBottom: 0 }]}
-                                            placeholder="יחידה"
-                                            value={ingredient.unit}
-                                            onChangeText={(text) => {
-                                                const nl = [...editRecipeIngredients];
-                                                nl[index].unit = text;
-                                                setEditRecipeIngredients(nl);
-                                            }}
-                                        />
-                                        <TouchableOpacity style={styles.removeIngredientBtn} onPress={() => setEditRecipeIngredients(editRecipeIngredients.filter((_, i) => i !== index))}>
-                                            <Ionicons name="trash-outline" size={18} color="#ef4444" />
-                                        </TouchableOpacity>
-                                    </View>
-                                ))}
-                                <TouchableOpacity style={[styles.actionBtnSecondary, { alignSelf: 'flex-end', marginBottom: 16 }]} onPress={() => setEditRecipeIngredients([...editRecipeIngredients, { id: Date.now().toString(), amount: '', unit: '', name: '' }])}>
-                                    <Text style={styles.actionBtnTextSecondary}>+ הוסף מרכיב</Text>
-                                </TouchableOpacity>
-                            </View>
-                        )}
-
-                        <Text style={styles.inputLabel}>אופן הכנה (אופציונלי)</Text>
-                        <TextInput
-                            style={[styles.inlineInput, styles.textArea]}
-                            multiline
-                            numberOfLines={4}
-                            value={editRecipeInstructions}
-                            onChangeText={setEditRecipeInstructions}
-                            placeholder="הכנס הוראות הכנה..."
-                        />
-
-                        <View style={{ flexDirection: 'row-reverse', gap: 12, marginTop: 16 }}>
-                            <TouchableOpacity style={[styles.modalSubmit, { flex: 1 }, isSavingEdit && { opacity: 0.6 }]} disabled={isSavingEdit} onPress={() => handleSaveRecipeEdit(item)}>
-                                {isSavingEdit
-                                    ? <ActivityIndicator color="#fff" />
-                                    : <Text style={styles.modalSubmitText}>עדכון</Text>}
-                            </TouchableOpacity>
-                            <TouchableOpacity style={[styles.modalCancel, { flex: 1, backgroundColor: '#f1f5f9' }]} disabled={isSavingEdit} onPress={() => setEditingRecipeId(null)}>
-                                <Text style={[styles.modalCancelText, { color: '#64748b' }]}>ביטול</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                ) : isExpanded && (
+                {isExpanded && (
                     <View style={styles.expandedContent}>
                         <View style={styles.expandedDivider} />
 
@@ -682,7 +533,7 @@ export default function MyRecipesScreen() {
                         )}
                     </View>
                 )}
-            </CardContainer>
+            </TouchableOpacity>
         );
     };
 
@@ -703,7 +554,7 @@ export default function MyRecipesScreen() {
                     <Text style={styles.actionBtnTextSecondary}>קטגוריה חדשה</Text>
                     <Ionicons name="folder-open-outline" size={18} color="#3b82f6" />
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.actionBtnPrimary} onPress={() => setRecipeModalVisible(true)}>
+                <TouchableOpacity style={styles.actionBtnPrimary} onPress={openCreateRecipe}>
                     <Text style={styles.actionBtnTextPrimary}>צור מתכון</Text>
                     <Ionicons name="add" size={18} color="#fff" />
                 </TouchableOpacity>
@@ -758,8 +609,7 @@ export default function MyRecipesScreen() {
                     data={filteredRecipes}
                     keyExtractor={item => item.id!.toString()}
                     renderItem={renderRecipe}
-                    extraData={[editingRecipeId, editRecipeIngredients, editRecipeName, editRecipeInstructions, editManualNutrients, editRecipeCategoryId, isSavingEdit, expandedId]}
-                    keyboardShouldPersistTaps="handled"
+                    extraData={expandedId}
                     contentContainerStyle={styles.listContent}
                 />
             )}
@@ -793,8 +643,8 @@ export default function MyRecipesScreen() {
                 <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
                     <View style={styles.modalContentLarge}>
                         <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitleLarge}>מתכון חדש לספרייה</Text>
-                            <TouchableOpacity onPress={() => !isProcessingAI && setRecipeModalVisible(false)} disabled={isProcessingAI}>
+                            <Text style={styles.modalTitleLarge}>{editingRecipe ? 'עריכת מתכון' : 'מתכון חדש לספרייה'}</Text>
+                            <TouchableOpacity onPress={closeRecipeModal} disabled={isProcessingAI}>
                                 <Ionicons name="close" size={24} color="#64748b" />
                             </TouchableOpacity>
                         </View>
@@ -882,7 +732,7 @@ export default function MyRecipesScreen() {
                                         ))}
                                     </View>
                                     <TouchableOpacity style={[styles.fullSubmitBtn, { backgroundColor: '#10b981' }]} onPress={handleCreateRecipeManual}>
-                                        <Text style={styles.fullSubmitText}>שמור מתכון (ידני)</Text>
+                                        <Text style={styles.fullSubmitText}>{editingRecipe ? 'שמור שינויים' : 'שמור מתכון (ידני)'}</Text>
                                     </TouchableOpacity>
                                 </>
                             ) : (
@@ -891,7 +741,7 @@ export default function MyRecipesScreen() {
                                     {recipeIngredientsList.map((ingredient, index) => (
                                         <View key={ingredient.id} style={{ flexDirection: 'row-reverse', gap: 8, marginBottom: 12 }}>
                                             <TextInput
-                                                style={[styles.modalInput, { flex: 1.5, marginBottom: 0 }]}
+                                                style={[styles.modalInput, { flex: 1.5, minWidth: 0, marginBottom: 0 }]}
                                                 placeholder="שם (למשל: חזה עוף)"
                                                 value={ingredient.name}
                                                 onChangeText={(val) => {
@@ -902,7 +752,7 @@ export default function MyRecipesScreen() {
                                                 editable={!isProcessingAI}
                                             />
                                             <TextInput
-                                                style={[styles.modalInput, { flex: 0.8, marginBottom: 0 }]}
+                                                style={[styles.modalInput, { flex: 0.8, minWidth: 0, marginBottom: 0, paddingHorizontal: 8 }]}
                                                 placeholder="כמות"
                                                 value={ingredient.amount}
                                                 onChangeText={(val) => {
@@ -914,7 +764,7 @@ export default function MyRecipesScreen() {
                                                 keyboardType="decimal-pad"
                                             />
                                             <TextInput
-                                                style={[styles.modalInput, { flex: 0.8, marginBottom: 0 }]}
+                                                style={[styles.modalInput, { flex: 0.8, minWidth: 0, marginBottom: 0, paddingHorizontal: 8 }]}
                                                 placeholder="יחידה"
                                                 value={ingredient.unit}
                                                 onChangeText={(val) => {
@@ -958,10 +808,10 @@ export default function MyRecipesScreen() {
                                         {isProcessingAI ? (
                                             <View style={{ flexDirection: 'row-reverse', alignItems: 'center', gap: 8 }}>
                                                 <ActivityIndicator size="small" color="#fff" />
-                                                <Text style={styles.fullSubmitText}>מנתח פקודות ב-AI...</Text>
+                                                <Text style={styles.fullSubmitText}>{editingRecipe ? 'שומר...' : 'מנתח פקודות ב-AI...'}</Text>
                                             </View>
                                         ) : (
-                                            <Text style={styles.fullSubmitText}>שמור מתכון ונתח</Text>
+                                            <Text style={styles.fullSubmitText}>{editingRecipe ? 'שמור שינויים' : 'שמור מתכון ונתח'}</Text>
                                         )}
                                     </TouchableOpacity>
                                 </>

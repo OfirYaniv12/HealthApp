@@ -5,7 +5,7 @@ import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
-import { initDB } from '@/db/database';
+import { Platform } from 'react-native';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 
@@ -15,7 +15,12 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
 
   useEffect(() => {
-    // initDB().catch(console.error);
+    // Web: the closed side menu sits just off-screen to the right; without this the whole
+    // page can be dragged sideways and screens/windows look cut off on the right edge.
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      document.documentElement.style.overflowX = 'hidden';
+      document.body.style.overflowX = 'hidden';
+    }
   }, []);
 
   return (
