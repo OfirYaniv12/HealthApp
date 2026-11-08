@@ -94,11 +94,16 @@ export default function EditProfileScreen() {
         }
 
         const ageNum = parseInt(age, 10);
-        const heightNum = Number(height);
-        const weightNum = Number(weight);
+        const heightNum = parseFloat(String(height).replace(',', '.'));
+        const weightNum = parseFloat(String(weight).replace(',', '.'));
 
         if (isNaN(ageNum) || isNaN(heightNum) || isNaN(weightNum)) {
             Alert.alert('קלט לא תקין', 'גיל, גובה ומשקל חייבים להיות מספרים תקינים.');
+            return;
+        }
+        // Catch typos like height in metres (1.75) or weight in grams, which would produce absurd targets
+        if (ageNum < 12 || ageNum > 100 || heightNum < 120 || heightNum > 230 || weightNum < 30 || weightNum > 300) {
+            Alert.alert('קלט לא תקין', 'נא לבדוק: גיל 12-100, גובה בס"מ (120-230), משקל בק"ג (30-300).');
             return;
         }
 

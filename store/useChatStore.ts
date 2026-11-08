@@ -8,6 +8,7 @@ export type ChatMessage = {
     isMealCard?: boolean;
     mealData?: { name: string; calories: number; protein: number; carbs: number; fat: number; fiber?: number; sodium?: number; sugar?: number; summary?: string };
     usedModel?: string;
+    addedToLog?: boolean; // the meal card was already added to the diary (prevents duplicates)
 };
 
 interface ChatState {

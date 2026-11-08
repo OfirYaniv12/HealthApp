@@ -422,24 +422,8 @@ export default function MyRecipesScreen() {
             sugar: item.sugar || 0 
         };
 
-        if (item.nutritional_values) {
-            try {
-                const arr = JSON.parse(item.nutritional_values);
-                const ingredients = Array.isArray(arr) ? arr : Object.values(arr);
-                if (ingredients.length > 0) {
-                    recipeTotals = { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sodium: 0, sugar: 0 };
-                    ingredients.forEach((ing: any) => {
-                        recipeTotals.calories += (ing.calories || 0);
-                        recipeTotals.protein += (ing.protein || 0);
-                        recipeTotals.carbs += (ing.carbs || 0);
-                        recipeTotals.fat += (ing.fat || 0);
-                        recipeTotals.fiber += (ing.fiber || 0);
-                        recipeTotals.sodium += (ing.sodium || 0);
-                        recipeTotals.sugar += (ing.sugar || 0);
-                    });
-                }
-            } catch (e) { }
-        }
+        // The saved totals are what gets logged to the diary, so show exactly those (the per-ingredient
+        // breakdown of older recipes only had 4 nutrients, which made fiber/sodium/sugar show as 0).
 
         return (
             <TouchableOpacity style={styles.card} onPress={() => setExpandedId(isExpanded ? null : item.id!)} activeOpacity={0.8}>
@@ -861,7 +845,11 @@ export default function MyRecipesScreen() {
                             {selectedRecipeDetails && selectedRecipeDetails.map((ing, idx) => {
                                 const activeKeys = getActiveNutrients(user?.trackedNutrients);
 
-                                const cleanName = ing.name.replace(/[a-zA-Z]/g, '').replace(/[()\-]/g, ' ').replace(/\s+/g, ' ').trim() || ing.name;
+                                // Strip English only when the name also has Hebrew (older AI answers mixed languages); never blank a name
+                                const rawName = String(ing.name || '');
+                                const cleanName = /[֐-׿]/.test(rawName)
+                                    ? (rawName.replace(/[a-zA-Z]/g, '').replace(/[()\-]/g, ' ').replace(/\s+/g, ' ').trim() || rawName)
+                                    : rawName;
 
                                 return (
                                     <View key={idx} style={{ backgroundColor: '#f8fafc', padding: 16, borderRadius: 16, borderWidth: 1, borderColor: '#e2e8f0' }}>

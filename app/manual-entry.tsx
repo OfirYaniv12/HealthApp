@@ -13,6 +13,10 @@ if (!I18nManager.isRTL) {
     I18nManager.forceRTL(true);
 }
 
+
+// Accepts "12,5" as well as "12.5" (a plain Number() turns a decimal comma into NaN)
+const num = (v: string) => { const n = parseFloat(String(v).replace(',', '.')); return isFinite(n) ? n : 0; };
+
 export default function ManualEntryScreen() {
     const user = useUserStore(state => state.user);
     const tracked = user?.trackedNutrients || {};
@@ -39,14 +43,14 @@ export default function ManualEntryScreen() {
             const timestamp = new Date().toISOString();
 
             await addMeal({
-                name: foodName,
-                calories: Number(calories),
-                protein: Number(protein),
-                carbs: Number(carbs),
-                fat: Number(fat),
-                fiber: fiber ? Number(fiber) : 0,
-                sodium: sodium ? Number(sodium) : 0,
-                sugar: sugar ? Number(sugar) : 0,
+                name: quantity.trim() ? `${foodName.trim()} (${quantity.trim()})` : foodName.trim(),
+                calories: num(calories),
+                protein: num(protein),
+                carbs: num(carbs),
+                fat: num(fat),
+                fiber: num(fiber),
+                sodium: num(sodium),
+                sugar: num(sugar),
                 timestamp: timestamp,
                 image_uri: null
             });

@@ -19,11 +19,11 @@ if (!I18nManager.isRTL) {
 
 export default function AddWorkoutChatScreen() {
     const user = useUserStore(state => state.user);
-    const tracked = user?.trackedNutrients || {};
     const router = useRouter();
     const { messages, setMessages } = useWorkoutChatStore();
     const [inputText, setInputText] = useState('');
     const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
+    const [selectedImageBase64, setSelectedImageBase64] = useState<string | null>(null);
     const [isTyping, setIsTyping] = useState(false);
     const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
     const scrollViewRef = useRef<ScrollView>(null);
@@ -47,22 +47,27 @@ export default function AddWorkoutChatScreen() {
                 { text: 'הוסף אימון נוסף', style: 'cancel' },
                 { text: 'עבור ליומן האימונים', onPress: () => router.replace('/(drawer)/workout-history' as any) }
             ]);
+            return true;
         } catch (e) {
             console.error('Error saving workout', e);
             Alert.alert('שגיאה', 'לא הצלחנו לשמור את האימון.');
+            return false;
         }
     };
 
     const pickImage = async (useCamera: boolean) => {
         setShowAttachmentMenu(false);
         let result = useCamera
-            ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8, base64: true })
-            : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8, base64: true });
+            ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: false, quality: 0.6, base64: true })
+            : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: false, quality: 0.6, base64: true });
 
         if (!result.canceled && result.assets && result.assets.length > 0) {
-            setSelectedImageUri(result.assets[0].uri);
-            // In a real app we'd keep the base64 in state for the API:
-            // setBase64(`data:image/jpeg;base64,${result.assets[0].base64}`); 
+            const asset = result.assets[0];
+            setSelectedImageUri(asset.uri);
+            // Keep the image data so it is actually sent to the AI (e.g. a screenshot of a watch/app workout summary)
+            setSelectedImageBase64(asset.base64
+                ? `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}`
+                : (asset.uri.startsWith('data:') ? asset.uri : null));
         }
     };
 
@@ -71,6 +76,7 @@ export default function AddWorkoutChatScreen() {
 
         const sentText = inputText;
         const sentImage = selectedImageUri || undefined;
+        const sentImageBase64 = selectedImageBase64 || undefined;
 
         const userMsg: Message = { id: Date.now().toString(), sender: 'user', text: sentText || undefined, image: sentImage };
         const updatedMessages = [...messages, userMsg];
@@ -78,22 +84,29 @@ export default function AddWorkoutChatScreen() {
 
         setInputText('');
         setSelectedImageUri(null);
+        setSelectedImageBase64(null);
         setIsTyping(true);
         setShowAttachmentMenu(false);
 
-        // Map complete history to native Gemini API structure
+        // Conversation for the AI. Bot workout cards are sent back as the JSON the model produced,
+        // so it keeps replying in the same format (same fix as the meal chat).
         const history: { role: 'user' | 'model', parts: { text: string }[] }[] = updatedMessages
-            .filter(m => m.id !== '1' && m.id !== userMsg.id && !m.image)
-            .map(m => ({
-                role: m.sender === 'user' ? 'user' : 'model',
-                parts: [{ text: m.text || (m.workoutData ? JSON.stringify(m.workoutData) : '') }]
-            }));
+            .filter(m => m.id !== '1' && m.id !== userMsg.id)
+            .map(m => {
+                let text = '';
+                if (m.sender === 'bot' && m.workoutData) text = JSON.stringify({ isWorkout: true, ...m.workoutData });
+                else if (m.sender === 'bot') text = JSON.stringify({ isWorkout: false, textResponse: m.text || '' });
+                else text = (m.text || '') + (m.image ? ' [צורפה תמונה]' : '');
+                return { role: m.sender === 'user' ? 'user' as const : 'model' as const, parts: [{ text: text.trim() }] };
+            })
+            .filter(m => m.parts[0].text);
 
         setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
 
         try {
             const userWeight = user?.weight || 70;
-            const aiResponse = await generateWorkoutResponse(history, sentText, userWeight);
+            const messageForAi = sentText.trim() || (sentImageBase64 ? 'נתח את האימון שבתמונה המצורפת.' : '');
+            const aiResponse = await generateWorkoutResponse(history, messageForAi, userWeight, sentImageBase64);
 
             setIsTyping(false);
 
@@ -182,9 +195,9 @@ export default function AddWorkoutChatScreen() {
                                         <View style={styles.macroBadge}><Text style={styles.macroBadgeText}>{msg.workoutData.duration_minutes} דקות</Text></View>
                                     </View>
 
-                                    <TouchableOpacity style={styles.confirmButton} onPress={() => addWorkoutToLog(msg.workoutData)}>
+                                    <TouchableOpacity style={[styles.confirmButton, msg.addedToLog && { opacity: 0.5 }]} disabled={msg.addedToLog} onPress={async () => { if (await addWorkoutToLog(msg.workoutData)) setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, addedToLog: true } : m)); }}>
                                         <Ionicons name="checkmark-circle-outline" size={20} color="#fff" />
-                                        <Text style={styles.confirmButtonText}>הוסף למעקב</Text>
+                                        <Text style={styles.confirmButtonText}>{msg.addedToLog ? 'נוסף למעקב ✓' : 'הוסף למעקב'}</Text>
                                     </TouchableOpacity>
                                 </View>
                             )}
@@ -207,7 +220,7 @@ export default function AddWorkoutChatScreen() {
                     {selectedImageUri && (
                         <View style={styles.attachmentPreviewContainer}>
                             <Image source={{ uri: selectedImageUri }} style={styles.attachmentPreviewImage} />
-                            <TouchableOpacity style={styles.removeAttachmentButton} onPress={() => setSelectedImageUri(null)}>
+                            <TouchableOpacity style={styles.removeAttachmentButton} onPress={() => { setSelectedImageUri(null); setSelectedImageBase64(null); }}>
                                 <Ionicons name="close-circle" size={24} color="#64748b" />
                             </TouchableOpacity>
                         </View>

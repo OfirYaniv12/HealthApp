@@ -9,7 +9,7 @@ import NutrientModal from '@/components/NutrientModal';
 import { Meal, Workout, getLogicalDayMeals, getLogicalDayWorkouts } from '@/db/database';
 import { generateDailyRecommendations } from '@/utils/ai';
 import { getLogicalDayBounds, getLogicalDayKey } from '@/utils/calculators';
-import { getActiveNutrients, nutrientLabelsLoc } from '@/utils/nutrients';
+import { getActiveNutrients, getExpectedProgressNow, getNutrientStatus, getNutrientTargets, NUTRIENT_STATUS_COLORS, nutrientLabelsLoc } from '@/utils/nutrients';
 import { refreshDailyScoreData } from '@/utils/scoreUpdater';
 import { useFocusEffect, useRouter } from 'expo-router';
 if (!I18nManager.isRTL) {
@@ -118,9 +118,10 @@ export default function DashboardScreen() {
 
   const { daily_targets, full_name } = user;
 
-  // Get current day of the week in Hebrew
+  // Day of the week in Hebrew, of the logical day (after midnight but before the reset time it's still "yesterday")
   const days = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
-  const today = days[new Date().getDay()];
+  const [ly, lm, ld] = getLogicalDayKey(new Date(), user.resetTime).split('-').map(Number);
+  const today = days[new Date(ly, lm - 1, ld).getDay()];
 
   // Display First Name Only
   const firstName = full_name ? full_name.split(' ')[0] : 'אורח';
@@ -134,15 +135,7 @@ export default function DashboardScreen() {
   const consumedSodium = foodLogs.reduce((sum, log) => sum + (log.sodium || 0), 0);
   const consumedSugar = foodLogs.reduce((sum, log) => sum + (log.sugar || 0), 0);
 
-  const tracked = user.trackedNutrients || {};
-  const isEnabled = (key: string, def: boolean) => tracked[key] !== undefined ? tracked[key] : def;
-
-  const targets = {
-    ...daily_targets,
-    fiber: daily_targets.fiber || 30,
-    sodium: daily_targets.sodium || 2300,
-    sugar: daily_targets.sugar || 50
-  };
+  const targets = getNutrientTargets(daily_targets);
 
   const activeKeys = getActiveNutrients(user.trackedNutrients);
 
@@ -159,21 +152,9 @@ export default function DashboardScreen() {
     }
   };
 
-  const todayDateStr = getLogicalDayKey(new Date(), useUserStore.getState().user?.resetTime);
-  const scoreExpCache = user.dailyScoreExplanations?.[todayDateStr];
-  let aiStatuses: Record<string, string> = {};
-  if (scoreExpCache) {
-    try {
-      const parsed = JSON.parse(scoreExpCache);
-      aiStatuses = parsed.statuses || {};
-    } catch (e) {}
-  }
-
-  const colorMap: Record<string, string> = {
-    green: '#10b981',
-    yellow: '#f59e0b',
-    red: '#ef4444'
-  };
+  const todayDateStr = getLogicalDayKey(new Date(), user.resetTime);
+  // Bar colours come from the actual numbers (the AI text no longer carries colour statuses)
+  const expectedNow = getExpectedProgressNow(user.resetTime);
 
   const nutrientUnits: Record<string, string> = {
     calories: '',
@@ -190,13 +171,13 @@ export default function DashboardScreen() {
   };
 
   const macrosToDisplay = activeKeys.map(key => {
-    const status = aiStatuses[key] || 'green'; // Default to green if AI doesn't specify
+    const status = getNutrientStatus(key, getConsumedValue(key), targets[key], expectedNow);
     return {
       key,
       label: nutrientLabelsOverride[key] || nutrientLabelsLoc[key] || key,
       consumed: getConsumedValue(key),
-      target: (targets as any)[key] || 0,
-      color: colorMap[status] || '#3b82f6',
+      target: targets[key] || 0,
+      color: NUTRIENT_STATUS_COLORS[status],
       unit: nutrientUnits[key] || ''
     };
   });

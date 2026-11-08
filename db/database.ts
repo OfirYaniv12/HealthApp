@@ -135,8 +135,10 @@ export const addMeal = async (meal: Omit<Meal, 'id'>) => {
 };
 
 export const getLogicalDayMeals = async (startIso: string, endIso: string) => {
+    const user_id = await getUserId();
     const { data, error } = await supabase.from('meals')
         .select('*')
+        .eq('user_id', user_id)
         .gte('timestamp', startIso)
         .lt('timestamp', endIso)
         .order('timestamp', { ascending: false });
@@ -163,8 +165,10 @@ export const addWorkout = async (workout: Omit<Workout, 'id'>) => {
 };
 
 export const getLogicalDayWorkouts = async (startIso: string, endIso: string) => {
+    const user_id = await getUserId();
     const { data, error } = await supabase.from('workouts')
         .select('*')
+        .eq('user_id', user_id)
         .gte('timestamp', startIso)
         .lt('timestamp', endIso)
         .order('timestamp', { ascending: false });
@@ -173,7 +177,8 @@ export const getLogicalDayWorkouts = async (startIso: string, endIso: string) =>
 };
 
 export const getAllWorkouts = async () => {
-    const { data, error } = await supabase.from('workouts').select('*').order('timestamp', { ascending: false });
+    const user_id = await getUserId();
+    const { data, error } = await supabase.from('workouts').select('*').eq('user_id', user_id).order('timestamp', { ascending: false });
     if (error) throw error;
     return data || [];
 };
@@ -184,7 +189,8 @@ export const deleteWorkout = async (id: number) => {
 };
 
 export const getWorkoutCategories = async () => {
-    const { data, error } = await supabase.from('workout_categories').select('*').order('name', { ascending: true });
+    const user_id = await getUserId();
+    const { data, error } = await supabase.from('workout_categories').select('*').eq('user_id', user_id).order('name', { ascending: true });
     if (error) throw error;
     return data || [];
 };
@@ -202,8 +208,9 @@ export const deleteWorkoutCategory = async (id: number) => {
 };
 
 export const getWorkoutTemplates = async () => {
-    const { data: templates } = await supabase.from('workout_templates').select('*').order('last_performed_date', { ascending: false });
-    const { data: categories } = await supabase.from('workout_categories').select('*');
+    const user_id = await getUserId();
+    const { data: templates } = await supabase.from('workout_templates').select('*').eq('user_id', user_id).order('last_performed_date', { ascending: false });
+    const { data: categories } = await supabase.from('workout_categories').select('*').eq('user_id', user_id);
     
     return (templates || []).map(t => {
         const cat = (categories || []).find(c => c.id === t.category_id);
@@ -253,7 +260,8 @@ export const deleteWorkoutTemplate = async (id: number) => {
 };
 
 export const getRecipeCategories = async () => {
-    const { data, error } = await supabase.from('recipe_categories').select('*').order('name', { ascending: true });
+    const user_id = await getUserId();
+    const { data, error } = await supabase.from('recipe_categories').select('*').eq('user_id', user_id).order('name', { ascending: true });
     if (error) throw error;
     return data || [];
 };
@@ -271,8 +279,9 @@ export const deleteRecipeCategory = async (id: number) => {
 };
 
 export const getRecipesWithCategories = async () => {
-    const { data: recipes } = await supabase.from('recipes').select('*').order('last_cooked_date', { ascending: false });
-    const { data: categories } = await supabase.from('recipe_categories').select('*');
+    const user_id = await getUserId();
+    const { data: recipes } = await supabase.from('recipes').select('*').eq('user_id', user_id).order('last_cooked_date', { ascending: false });
+    const { data: categories } = await supabase.from('recipe_categories').select('*').eq('user_id', user_id);
     
     return (recipes || []).map(r => {
         const cat = (categories || []).find(c => c.id === r.category_id);

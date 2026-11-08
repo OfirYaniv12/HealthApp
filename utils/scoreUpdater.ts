@@ -3,6 +3,7 @@ import { UserData, useUserStore } from '@/store/useUserStore';
 import { generateDailyScoreExplanation } from './ai';
 import { getLogicalDayBounds, getLogicalDayBoundsForKey, getLogicalDayKey } from './calculators';
 import { calculateDailyScore, classifyWorkout } from './dailyScore';
+import { getActiveNutrients, getNutrientTargets } from './nutrients';
 
 /** Target workouts per week, derived from the onboarding answer (e.g. "3-4 בשבוע" -> 3-4). */
 const weeklyWorkoutTarget = (freq?: string) => {
@@ -36,9 +37,10 @@ const buildDayContext = async (user: UserData, dayKey: string, dayComplete: bool
         dayComplete ? endDate.getTime() - 60 * 1000 : Date.now(), resetTime, { dayComplete }
     );
 
-    const relevantKeys = Object.keys(user.daily_targets || {}).filter(key => user.trackedNutrients === undefined || user.trackedNutrients[key] === true);
+    const fullTargets = getNutrientTargets(user.daily_targets as any);
+    const relevantKeys = getActiveNutrients(user.trackedNutrients);
     const consumptionStr = relevantKeys.map(key => {
-        const target = user.daily_targets[key as keyof typeof user.daily_targets] || 0;
+        const target = fullTargets[key] || 0;
         const consumed = (meals as Meal[]).reduce((sum, meal) => sum + ((meal[key as keyof Meal] as number) || 0), 0);
         return `${key}: צרך ${Math.round(consumed)}, יעד ${target}`;
     }).join(' | ');

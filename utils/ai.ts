@@ -1,13 +1,16 @@
 import { Meal, Workout } from '@/db/database';
 import { UserData } from '@/store/useUserStore';
 import { supabase } from '@/utils/supabase';
+import { calculateDailyTargets } from '@/utils/calculators';
 import { Platform } from 'react-native';
 
 // Gemini is called through our own server endpoint (/api/gemini), which holds the API key.
 // The key is never shipped to the browser. On the website the endpoint is on the same domain;
-// in local development and in the native app EXPO_PUBLIC_API_BASE_URL points to it.
-const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
-const apiKey = Platform.OS === 'web' || API_BASE_URL ? 'proxy' : '';
+// in local development EXPO_PUBLIC_API_BASE_URL points to it, and the phone app (which has no
+// "same domain") defaults to the live website's endpoint.
+const PRODUCTION_API_BASE = 'https://health-app-mu-orpin.vercel.app';
+const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || (Platform.OS === 'web' ? '' : PRODUCTION_API_BASE)).replace(/\/$/, '');
+const apiKey = 'proxy'; // kept for the existing "is AI configured" checks; the real key lives on the server
 
 const callGeminiProxy = async (request: { model: string; contents: any; config?: any }): Promise<{ text: string }> => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -74,7 +77,7 @@ const DAILY_LIMIT = 500;
 let rpmTimestamps: number[] = [];
 
 import { useUserStore } from '@/store/useUserStore';
-import { Alert } from 'react-native';
+import { AlertManager as Alert } from '@/components/GlobalAlert';
 
 export const checkAndIncrementRateLimits = (): boolean => {
     const now = Date.now();
@@ -392,21 +395,16 @@ Return ONLY a raw JSON object string. Do not wrap in markdown.
 }
 `;
 
+// Daily targets are calculated with standard formulas in code (see calculateDailyTargets): exact,
+// instant, and they respect the chosen pace. No AI call needed. (Same signature as before for callers.)
 export const generatePersonalizedPlan = async (user: UserData): Promise<{ targets: UserData['daily_targets'], explanation: string } | null> => {
-    if (!apiKey) return null;
-    if (!checkAndIncrementRateLimits()) return null;
-
     try {
-        const userDataMsg = `גיל: ${user.age}\nמין: ${user.gender}\nגובה: ${user.height} ס"מ\nמשקל: ${user.weight} ק"ג\nמטרה: ${user.goal}\nרמת פעילות: ${user.activity_level}\nאימונים בשבוע: ${user.workout_frequency}\nמבנה גוף: ${user.body_type}`;
-        const fallbackData = await generateContentWithFallback({
-            contents: userDataMsg,
-            config: { responseMimeType: 'application/json', systemInstruction: NUTRITIONIST_SYSTEM_PROMPT, temperature: 0.1, thinkingConfig: { thinkingBudget: 2048 } }
-        });
-        if (fallbackData.limitReached) return null;
-        const result = fallbackData.result;
-        const parsed = JSON.parse((result.text || '{}').replace(/```json|```/g, ''));
-        return { targets: parsed.targets, explanation: parsed.explanation };
-    } catch (e: any) { return null; }
+        const { targets, explanation } = calculateDailyTargets(user);
+        return { targets, explanation };
+    } catch (e: any) {
+        console.error('Failed to calculate targets', e);
+        return null;
+    }
 };
 ;
 
@@ -518,39 +516,78 @@ NON-WORKOUT CHAT JSON:
 ZERO HALLUCINATION: If the user says "התאמנתי" without time, politely reject logging it and ask for duration. 
 `;
 
-export const generateWorkoutResponse = async (history: { role: 'user' | 'model', parts: { text: string }[] }[], newMessageText: string, userWeightKg: number): Promise<WorkoutPlan> => {
-        if (!checkAndIncrementRateLimits()) return { isWorkout: false, textResponse: 'הגעת למגבלת קצב. המתן מעט.' };
+const WORKOUT_FIELDS = ['isWorkout', 'textResponse', 'name', 'duration_minutes', 'distance_km', 'calories_burned', 'summary'];
+const WORKOUT_RESPONSE_SCHEMA = {
+    type: 'OBJECT',
+    properties: {
+        isWorkout: { type: 'BOOLEAN' },
+        textResponse: { type: 'STRING' },
+        name: { type: 'STRING' },
+        duration_minutes: { type: 'NUMBER' },
+        distance_km: { type: 'NUMBER' },
+        calories_burned: { type: 'NUMBER' },
+        summary: { type: 'STRING' },
+    },
+    required: WORKOUT_FIELDS,
+    propertyOrdering: WORKOUT_FIELDS,
+};
+
+export const generateWorkoutResponse = async (
+    history: { role: 'user' | 'model', parts: { text: string }[] }[],
+    newMessageText: string,
+    userWeightKg: number,
+    imageBase64?: string
+): Promise<WorkoutPlan> => {
+    if (!checkAndIncrementRateLimits()) return { isWorkout: false, textResponse: 'הגעת למגבלת קצב. המתן מעט.' };
 
     try {
-        const enhancedMessageText = `[SYSTEM CONTEXT: The user weighs ${userWeightKg}kg. Use this EXACT weight to calculate MET calories burned = MET * ${userWeightKg} * (duration / 60)].\n\nUser Message: ${newMessageText}`;
-        const fallbackData = await chatWithFallback(history, enhancedMessageText, { 
-            responseMimeType: 'application/json', systemInstruction: WORKOUT_SYSTEM_PROMPT, temperature: 0.1, 
-            thinkingConfig: { thinkingBudget: 1024 } 
-        });
+        const enhancedMessageText = `[SYSTEM CONTEXT: The user weighs ${userWeightKg}kg. Use this EXACT weight to calculate MET calories burned = MET * ${userWeightKg} * (duration / 60). If no distance was given, set distance_km to 0. For a non-workout reply set the numbers to 0 and name/summary to empty strings.]
+
+User Message: ${newMessageText}`;
+        const parts: any[] = [{ text: enhancedMessageText }];
+        if (imageBase64) {
+            const mimeMatch = imageBase64.match(/^data:([^;]+);base64,/);
+            parts.push({ inlineData: { data: imageBase64.split(',')[1] || imageBase64, mimeType: mimeMatch?.[1] || 'image/jpeg' } });
+        }
+        const fallbackData = await generateContentWithFallback({
+            contents: [...history, { role: 'user', parts }],
+            config: {
+                responseMimeType: 'application/json', responseSchema: WORKOUT_RESPONSE_SCHEMA,
+                systemInstruction: WORKOUT_SYSTEM_PROMPT, temperature: 0.1,
+                thinkingConfig: { thinkingBudget: 1024 }
+            }
+        }, imageBase64 ? 45000 : 20000);
         if (fallbackData.limitReached) return { isWorkout: false, limitReached: true, textResponse: 'הגיע למגבלת השימוש.' };
         const result = fallbackData.result;
         const usedModel = fallbackData.usedModel;
-        const parsed = JSON.parse((result.text || '{}').replace(/```json|```/g, ''));
-        if (parsed.isWorkout) {
-            // Support both flat root properties (as prompted) and nested workoutData (common AI hallucination)
-            const dataTarget = parsed.workoutData || parsed;
-            
+        const parsed = JSON.parse(extractJson(result.text || '{}'));
+        const dataTarget = parsed.workoutData || parsed;
+        const minutes = toNum(dataTarget.duration_minutes);
+        const kcal = toNum(dataTarget.calories_burned);
+        if (parsed.isWorkout && minutes > 0 && kcal > 0) {
+            const km = toNum(dataTarget.distance_km);
             return {
                 isWorkout: true,
                 workoutData: {
                     name: dataTarget.name || 'אימון כללי',
-                    duration_minutes: dataTarget.duration_minutes || 0,
-                    distance_km: typeof dataTarget.distance_km === 'number' && dataTarget.distance_km > 0 ? dataTarget.distance_km : null,
-                    calories_burned: dataTarget.calories_burned || 0,
+                    duration_minutes: Math.round(minutes),
+                    distance_km: km > 0 ? km : null,
+                    calories_burned: Math.round(kcal),
                     summary: dataTarget.summary || 'אימון נרשם בהצלחה.'
                 },
-                usedModel: usedModel
+                usedModel
             };
         }
-        return { isWorkout: false, textResponse: parsed.textResponse, usedModel: usedModel };
-    } catch (e: any) { return { isWorkout: false, textResponse: 'שגיאת AI.' }; }
+        if (parsed.isWorkout) {
+            // A "workout" without duration/calories can't be logged: ask instead of showing an empty card
+            return { isWorkout: false, textResponse: parsed.textResponse || 'כמה זמן נמשך האימון? (ואם יש – מה היה המרחק)', usedModel };
+        }
+        return { isWorkout: false, textResponse: parsed.textResponse || 'לא הבנתי, אפשר לפרט איזה אימון עשית וכמה זמן?', usedModel };
+    } catch (e: any) {
+        console.error('[AI] Workout request failed', e);
+        return { isWorkout: false, textResponse: 'שגיאת AI. נסה שוב בעוד רגע.' };
+    }
 };
-;
 
 const RECIPE_ANALYSIS_PROMPT = `
 You are an Elite AI Clinical Nutritionist. Your task is to analyze an Israeli recipe, its structured ingredients, and instructions, and provide a highly accurate nutritional breakdown.
@@ -580,21 +617,33 @@ Return ONLY a strictly formatted JSON object. Do not wrap in markdown blocks lik
   "healthScore": 8,
   "ingredientBreakdown": [
     {
-      "name": "200g chicken breast",
+      "name": "200 גרם חזה עוף",
       "calories": 330,
       "protein": 44,
       "fat": 7,
-      "carbs": 0
+      "carbs": 0,
+      "fiber": 0,
+      "sodium": 150,
+      "sugar": 0
     },
     {
-      "name": "1 tbsp olive oil",
+      "name": "כף שמן זית",
       "calories": 119,
       "protein": 0,
       "fat": 13.5,
-      "carbs": 0
+      "carbs": 0,
+      "fiber": 0,
+      "sodium": 0,
+      "sugar": 0
     }
   ]
 }
+
+RULES:
+- Every ingredient in ingredientBreakdown MUST include all 7 fields (calories, protein, fat, carbs, fiber, sodium in mg, sugar).
+- The totals MUST equal the sum of the ingredient breakdown.
+- Write ingredient names in HEBREW, exactly as the user wrote them (with the quantity).
+- If the user wrote nutrition values for an ingredient (e.g. from its label, "per 100 g"), use those values scaled to the quantity.
 `;
 
 export type RecipeAnalysisResult = {
@@ -641,19 +690,20 @@ Instructions: ${instructions || 'ללא הוראות מיוחדות'}
         if (fallbackData.limitReached) return null;
         const result = fallbackData.result;
 
-        let rawJsonStr = (result.text || '').trim();
-
-        if (rawJsonStr.startsWith('```json')) {
-            rawJsonStr = rawJsonStr.replace(/^```json/, '').replace(/```$/, '').trim();
-        } else if (rawJsonStr.startsWith('```')) {
-            rawJsonStr = rawJsonStr.replace(/^```/, '').replace(/```$/, '').trim();
+        const parsed = JSON.parse(extractJson(result.text || ''));
+        const breakdown: any[] = Array.isArray(parsed.ingredientBreakdown) ? parsed.ingredientBreakdown : [];
+        const keys = ['calories', 'protein', 'fat', 'carbs', 'fiber', 'sodium', 'sugar'];
+        // Totals = sum of the ingredients, so the recipe card, the breakdown and the diary always agree
+        const totals: any = {};
+        for (const k of keys) {
+            const sum = breakdown.reduce((acc, ing) => acc + toNum(ing?.[k]), 0);
+            totals[k] = breakdown.length > 0 ? Math.round(sum * 10) / 10 : toNum(parsed.totals?.[k]);
         }
-
-        const parsed = JSON.parse(rawJsonStr);
+        if (!totals.calories) return null;
         return {
-            totals: parsed.totals,
+            totals,
             healthScore: parsed.healthScore,
-            ingredientBreakdown: parsed.ingredientBreakdown
+            ingredientBreakdown: breakdown.map(ing => ({ ...ing, ...Object.fromEntries(keys.map(k => [k, toNum(ing?.[k])])) }))
         };
     } catch (e: any) {
         console.log('Failed to analyze recipe:', e.message || e);
@@ -695,6 +745,7 @@ TONE & REALISM RULES (CRITICAL):
 - BE CONSTRUCTIVE AND POSITIVE: Do not be overly harsh or "evil". Look at the bright side and big picture. Support the user through their journey, give realistic advice, and DO NOT make them feel bad for eating or resting.
 - MATCH THEIR LIFESTYLE: If the user's setting says they train 2-3 times a week, do NOT expect them to train 5 times a week! Respect their stated workout frequency and goal. Be highly accurate to their specific situation.
 - If they are off-track, provide gentle, realistic adjustments instead of scolding.
+- TIME OF DAY: Base the advice on the current time and on what is LEFT of the day's targets (e.g. late evening: light suggestions, not a full meal plan).
 - WORKOUTS: Judge each workout realistically. A short easy activity (e.g. a 15-minute walk) is nice movement but NOT a full workout and does not fulfil the weekly workout goal. Only substantial sessions count toward the goal.
 
 Output Requirement:
@@ -750,9 +801,18 @@ export const generateDailyRecommendations = async (meals: Meal[], workouts: Work
     if (!apiKey) return null;
     if (!checkAndIncrementRateLimits()) return null;
     try {
+        // Send only what matters (no ids, images or long exercise JSON) and tell the model the time of day,
+        // so "recommendations for the rest of the day" fit what is left of it.
+        const timeOf = (iso: string) => new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+        const mealsBrief = meals.map(m => ({ time: timeOf(m.timestamp), name: m.name, calories: m.calories, protein: m.protein, carbs: m.carbs, fat: m.fat, fiber: m.fiber, sodium: m.sodium, sugar: m.sugar }));
+        const workoutsBrief = workouts.map(w => ({ time: timeOf(w.timestamp), name: w.name, minutes: w.duration_minutes, calories: w.calories_burned, details: (w.description || '').split('\n')[0] }));
+        const totals: Record<string, number> = {};
+        for (const k of ['calories', 'protein', 'carbs', 'fat', 'fiber', 'sodium', 'sugar']) totals[k] = Math.round(meals.reduce((a, m: any) => a + (m[k] || 0), 0));
         const promptMsg = `
-Meals Logged: ${JSON.stringify(meals)}
-Workouts Logged: ${JSON.stringify(workouts)}
+Current Time: ${new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+Meals Logged: ${JSON.stringify(mealsBrief)}
+Totals So Far: ${JSON.stringify(totals)}
+Workouts Logged: ${JSON.stringify(workoutsBrief)}
 Targets: ${JSON.stringify(targets)}
 User Goal: ${userGoal || 'לא צוין'}
 Past 3 Days Context: ${pastDaysContextStr || 'No past context available.'}

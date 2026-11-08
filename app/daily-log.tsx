@@ -83,11 +83,11 @@ export default function DailyLogScreen() {
                     <Text style={styles.summaryTitle}>סיכום יומי</Text>
                     <View style={styles.summaryRow}>
                         <View style={styles.summaryItem}>
-                            <Text style={styles.summaryValue}>{totalCals}</Text>
+                            <Text style={styles.summaryValue}>{Math.round(totalCals)}</Text>
                             <Text style={styles.summaryLabel}>קק"ל</Text>
                         </View>
                         <View style={styles.summaryItem}>
-                            <Text style={[styles.summaryValue, { color: '#10b981' }]}>{totalProtein}g</Text>
+                            <Text style={[styles.summaryValue, { color: '#10b981' }]}>{Math.round(totalProtein)}g</Text>
                             <Text style={styles.summaryLabel}>חלבון</Text>
                         </View>
                     </View>

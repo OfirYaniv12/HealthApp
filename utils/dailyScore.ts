@@ -1,6 +1,7 @@
 import { Meal, Workout } from '@/db/database';
 
 import { GoalType } from './calculators';
+import { getNutrientTargets, isNutrientTracked } from './nutrients';
 
 export interface ScoreBreakdown {
     totalScore: number;
@@ -71,7 +72,8 @@ export function calculateDailyScore(
     let trackedCount = 0;
 
     // By default track main 4, else use tracked object
-    const isTracked = (key: string) => tracked === undefined ? ['calories', 'protein', 'carbs', 'fat'].includes(key) : tracked[key] === true;
+    // Same rule as the rest of the app: tracked unless switched off in Settings
+    const isTracked = (key: string) => isNutrientTracked(tracked, key);
 
     const nutrientKeys = ['calories', 'protein', 'carbs', 'fat', 'fiber', 'sodium', 'sugar'];
 
@@ -105,13 +107,21 @@ export function calculateDailyScore(
     let totalWeight = 0;
 
     const getMacroProgressWithWeight = (key: string) => {
-        if (!isTracked(key) || !targets[key]) return null;
+        // Same targets as shown on screen (fiber/sodium/sugar get standard defaults if missing)
+        const target = (getNutrientTargets(targets as any) as Record<string, number>)[key];
+        if (!isTracked(key) || !target) return null;
         const consumed = meals.reduce((sum, meal) => sum + ((meal[key as keyof Meal] as number) || 0), 0);
-        let ratio = consumed / targets[key];
+        let ratio = consumed / target;
 
         // Positive macros (we want to hit the target, no penalty for slight overage)
         if (key === 'protein' || key === 'fiber') {
             return Math.min(ratio, 1.0); // Capped at 100% progress
+        }
+
+        // Pure limits (sugar, sodium): staying under the limit is simply good. Eating LESS of them must not
+        // look like "falling behind", so under the limit they count as exactly on schedule.
+        if ((key === 'sugar' || key === 'sodium') && ratio <= 1.0) {
+            return progressExpected;
         }
 
         // Limit-based macros (over-consuming should ruin progress)

@@ -6,8 +6,9 @@ export type WorkoutChatMessage = {
     text?: string;
     image?: string;
     isWorkoutCard?: boolean;
-    workoutData?: { name: string; duration_minutes: number; calories_burned: number; summary?: string };
+    workoutData?: { name: string; duration_minutes: number; distance_km?: number | null; calories_burned: number; summary?: string };
     usedModel?: string;
+    addedToLog?: boolean; // already added to the log (prevents duplicates)
 };
 
 interface WorkoutChatState {

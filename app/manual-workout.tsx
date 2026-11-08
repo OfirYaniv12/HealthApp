@@ -12,6 +12,10 @@ if (!I18nManager.isRTL) {
     I18nManager.forceRTL(true);
 }
 
+
+// Accepts "12,5" as well as "12.5" (a plain Number() turns a decimal comma into NaN)
+const num = (v: string) => { const n = parseFloat(String(v).replace(',', '.')); return isFinite(n) ? n : 0; };
+
 export default function ManualWorkoutScreen() {
     const router = useRouter();
 
@@ -31,8 +35,8 @@ export default function ManualWorkoutScreen() {
 
             await addWorkout({
                 name: workoutName,
-                duration_minutes: Number(duration),
-                calories_burned: Number(calories),
+                duration_minutes: Math.round(num(duration)),
+                calories_burned: Math.round(num(calories)),
                 description: description || null,
                 timestamp: timestamp
             });

@@ -3,7 +3,7 @@ import { addMeal, getRecipeCategories, getRecipesWithCategories, Recipe, RecipeC
 import { useUserStore } from '@/store/useUserStore';
 import { useChatStore, ChatMessage as Message } from '@/store/useChatStore';
 import { generateNutritionResponse } from '@/utils/ai';
-import { getActiveNutrients, nutrientLabelsLoc } from '@/utils/nutrients';
+import { getActiveNutrients, isNutrientTracked, nutrientLabelsLoc } from '@/utils/nutrients';
 import { triggerScoreExplanationUpdate } from '@/utils/scoreUpdater';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -20,7 +20,7 @@ if (!I18nManager.isRTL) {
 
 export default function AddMealChatScreen() {
     const user = useUserStore(state => state.user);
-    const tracked = user?.trackedNutrients || {};
+    const showNutrient = (key: string) => isNutrientTracked(user?.trackedNutrients, key);
     const router = useRouter();
     const { messages, setMessages } = useChatStore();
     const [inputText, setInputText] = useState('');
@@ -80,9 +80,11 @@ export default function AddMealChatScreen() {
                     { text: 'עבור ליומן הארוחות', onPress: () => router.replace('/daily-log') }
                 ]);
             }
+            return true;
         } catch (e) {
             console.error('Error saving meal', e);
             Alert.alert('שגיאה', 'לא הצלחנו לשמור את הארוחה. ' + ((e as any).message || String(e)));
+            return false;
         }
     };
 
@@ -217,9 +219,8 @@ export default function AddMealChatScreen() {
 
             setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'user', text: `מתכון מותאם: ${selectedRecipe.name}\nשינויים: ${recipeMods}` }]);
 
-            const history = [{ role: 'user' as const, parts: [{ text: prompt }] }];
             try {
-                const aiResponse = await generateNutritionResponse(history, prompt);
+                const aiResponse = await generateNutritionResponse([], prompt);
                 setIsTyping(false);
                 if (aiResponse.limitReached) {
                     Alert.alert('שגיאה בתקשורת', 'כל המודלים הגיעו למגבלת השימוש. נסה שוב מאוחר יותר.');
@@ -293,14 +294,14 @@ export default function AddMealChatScreen() {
                                         <View style={styles.macroBadge}><Text style={styles.macroBadgeText}>{msg.mealData.protein}g חלבון</Text></View>
                                         <View style={styles.macroBadge}><Text style={styles.macroBadgeText}>{msg.mealData.carbs}g פחמ'</Text></View>
                                         <View style={styles.macroBadge}><Text style={styles.macroBadgeText}>{msg.mealData.fat}g שומן</Text></View>
-                                        {tracked.fiber && msg.mealData.fiber !== undefined && <View style={styles.macroBadge}><Text style={styles.macroBadgeText}>{msg.mealData.fiber}g סיבים</Text></View>}
-                                        {tracked.sodium && msg.mealData.sodium !== undefined && <View style={styles.macroBadge}><Text style={styles.macroBadgeText}>{msg.mealData.sodium}mg נתרן</Text></View>}
-                                        {tracked.sugar && msg.mealData.sugar !== undefined && <View style={styles.macroBadge}><Text style={styles.macroBadgeText}>{msg.mealData.sugar}g סוכר</Text></View>}
+                                        {showNutrient('fiber') && msg.mealData.fiber !== undefined && <View style={styles.macroBadge}><Text style={styles.macroBadgeText}>{msg.mealData.fiber}g סיבים</Text></View>}
+                                        {showNutrient('sodium') && msg.mealData.sodium !== undefined && <View style={styles.macroBadge}><Text style={styles.macroBadgeText}>{msg.mealData.sodium}mg נתרן</Text></View>}
+                                        {showNutrient('sugar') && msg.mealData.sugar !== undefined && <View style={styles.macroBadge}><Text style={styles.macroBadgeText}>{msg.mealData.sugar}g סוכר</Text></View>}
                                     </View>
 
-                                    <TouchableOpacity style={styles.confirmButton} onPress={() => addFoodToLog(msg.mealData)}>
+                                    <TouchableOpacity style={[styles.confirmButton, msg.addedToLog && { opacity: 0.5 }]} disabled={msg.addedToLog} onPress={async () => { if (await addFoodToLog(msg.mealData)) setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, addedToLog: true } : m)); }}>
                                         <Ionicons name="checkmark-circle-outline" size={20} color="#fff" />
-                                        <Text style={styles.confirmButtonText}>הוסף ליומן</Text>
+                                        <Text style={styles.confirmButtonText}>{msg.addedToLog ? 'נוסף ליומן ✓' : 'הוסף ליומן'}</Text>
                                     </TouchableOpacity>
                                 </View>
                             )}

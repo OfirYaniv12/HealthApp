@@ -1,6 +1,6 @@
 import { Meal } from '@/db/database';
 import { UserData } from '@/store/useUserStore';
-import { getLogicalDayKey } from '@/utils/calculators';
+import { getExpectedProgressNow, getNutrientStatus, getNutrientTargets, isNutrientTracked, NUTRIENT_STATUS_COLORS } from '@/utils/nutrients';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { I18nManager, Modal, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -20,15 +20,9 @@ export default function NutrientModal({ visible, onClose, user, meals }: Nutrien
     if (!user) return null;
 
     const { daily_targets } = user;
-    const tracked = user.trackedNutrients || {};
-    const isEnabled = (key: string, def: boolean) => tracked[key] !== undefined ? tracked[key] : def;
-
-    const targets = {
-        ...daily_targets,
-        fiber: daily_targets.fiber || 30,
-        sodium: daily_targets.sodium || 2300,
-        sugar: daily_targets.sugar || 50
-    };
+    const isEnabled = (key: string, _def: boolean) => isNutrientTracked(user.trackedNutrients, key);
+    const targets = getNutrientTargets(daily_targets);
+    const expectedNow = getExpectedProgressNow(user.resetTime);
 
     const totalCals = meals.reduce((sum, m) => sum + m.calories, 0);
     const totalProtein = meals.reduce((sum, m) => sum + m.protein, 0);
@@ -38,21 +32,7 @@ export default function NutrientModal({ visible, onClose, user, meals }: Nutrien
     const totalSodium = meals.reduce((sum, m) => sum + (m.sodium || 0), 0);
     const totalSugar = meals.reduce((sum, m) => sum + (m.sugar || 0), 0);
 
-    const todayDateStr = getLogicalDayKey(new Date(), user?.resetTime);
-    const scoreExpCache = user.dailyScoreExplanations?.[todayDateStr];
-    let aiStatuses: Record<string, string> = {};
-    if (scoreExpCache) {
-        try {
-            const parsed = JSON.parse(scoreExpCache);
-            aiStatuses = parsed.statuses || {};
-        } catch (e) {}
-    }
-
-    const colorMap: Record<string, string> = {
-        green: '#10b981',
-        yellow: '#f59e0b',
-        red: '#ef4444'
-    };
+    const colorMap: Record<string, string> = NUTRIENT_STATUS_COLORS;
 
     const tabs: { key: NutrientTab; label: string; unit: string; total: number; target: number; show: boolean }[] = [
         { key: 'calories' as NutrientTab, label: 'קלוריות', unit: 'קק"ל', total: Math.round(totalCals), target: targets.calories, show: isEnabled('calories', true) },
@@ -89,18 +69,7 @@ export default function NutrientModal({ visible, onClose, user, meals }: Nutrien
                             const progress = (tab.total / tab.target) * 100;
                             const barWidth = Math.min(progress, 100);
                             
-                            let status = aiStatuses[tab.key] || 'green';
-                            if (['fat', 'sugar', 'sodium'].includes(tab.key)) {
-                                status = progress <= 100 ? 'green' : 'red';
-                            } else if (['protein', 'fiber'].includes(tab.key)) {
-                                if (progress < 50) status = 'red';
-                                else if (progress <= 80) status = 'yellow';
-                                else status = 'green';
-                            } else if (tab.key === 'calories') {
-                                if (progress >= 90 && progress <= 110) status = 'green';
-                                else if (progress < 70 || progress > 130) status = 'red';
-                                else status = 'yellow';
-                            }
+                            const status = getNutrientStatus(tab.key, tab.total, tab.target, expectedNow);
 
                             const barColor = colorMap[status] || '#3b82f6';
                             const isExpanded = expandedTab === tab.key;
