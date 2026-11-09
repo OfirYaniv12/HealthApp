@@ -64,7 +64,9 @@ const buildDayContext = async (user: UserData, dayKey: string, dayComplete: bool
         `ב-7 הימים האחרונים: ${weekSignificant} אימונים משמעותיים ו-${weekLight} פעילויות קלות. יעד שבועי: ${target.label}.`;
 
     const workoutsDetailStr = describeWorkouts(workouts as Workout[]);
-    const hash = `${(meals as Meal[]).map(m => m.id).sort().join(',')}|${(workouts as Workout[]).map(w => w.id).sort().join(',')}|${resetTime}`;
+    // SCORE_VERSION: bump when the scoring rules change, so explanations written for the old numbers get rewritten
+    const SCORE_VERSION = 'v3';
+    const hash = `${(meals as Meal[]).map(m => m.id).sort().join(',')}|${(workouts as Workout[]).map(w => w.id).sort().join(',')}|${resetTime}|${user.goal}|${SCORE_VERSION}`;
 
     return { meals, workouts, score, consumptionStr, loggedFoodsStr, pastContextStr, workoutsDetailStr, hash, endDate };
 };
@@ -123,7 +125,7 @@ export const triggerScoreExplanationUpdate = async () => {
             ctx.score,
             ctx.consumptionStr,
             ctx.workouts.length > 0,
-            (user.goal || '') + ' | תדירות אימונים: ' + (user.workout_frequency || 'לא צוין'),
+            (user.goal || '') + ' | תדירות אימונים: ' + (user.workout_frequency || 'לא צוין') + ' | פנה למשתמש בלשון ' + (user.gender === 'Female' ? 'נקבה' : 'זכר'),
             ctx.loggedFoodsStr,
             ctx.pastContextStr,
             { workoutsDetailStr: ctx.workoutsDetailStr }
@@ -165,7 +167,7 @@ export const getFinalDaySummary = async (dayKey: string, options: { generateExpl
             ctx.score,
             ctx.consumptionStr,
             ctx.workouts.length > 0,
-            (user.goal || '') + ' | תדירות אימונים: ' + (user.workout_frequency || 'לא צוין'),
+            (user.goal || '') + ' | תדירות אימונים: ' + (user.workout_frequency || 'לא צוין') + ' | פנה למשתמש בלשון ' + (user.gender === 'Female' ? 'נקבה' : 'זכר'),
             ctx.loggedFoodsStr,
             ctx.pastContextStr,
             { workoutsDetailStr: ctx.workoutsDetailStr, isFinalSummary: true }

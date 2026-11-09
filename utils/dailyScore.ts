@@ -10,6 +10,10 @@ export interface ScoreBreakdown {
     progressExpected: number;
     progressActual: number;
     healthQualityScore: number;
+    /** 0-10 per nutrient (how well each one went), used by the explanation */
+    nutrientScores?: Record<string, number>;
+    /** Healthy food groups eaten today (variety) */
+    foodGroups?: string[];
 }
 
 export type WorkoutLevel = 'significant' | 'light';
@@ -37,6 +41,66 @@ export function classifyWorkout(w: Pick<Workout, 'name' | 'duration_minutes' | '
     return { level: 'light', reason: 'פעילות קצרה' };
 }
 
+/**
+ * How each goal ("plan") is scored. Every nutrient gets its own 0-10 score, so missing one
+ * (e.g. protein on a muscle-gain day) can't be hidden by hitting another.
+ *  - weights: how much each nutrient matters for this goal
+ *  - calOver / calUnder: allowed deviation of calories from where you should be by now, and how hard to penalise beyond it
+ *  - qualityShare: share of food quality & variety in the nutrition score
+ */
+type GoalProfile = {
+    weights: Record<string, number>;
+    calOverTol: number; calOverK: number;
+    calUnderTol: number; calUnderK: number;
+    proteinK: number; fiberK: number;
+    qualityShare: number;
+    workoutBonus: { significant: number; light: number };
+};
+
+export const GOAL_PROFILES: Record<string, GoalProfile> = {
+    // Weight loss: stay at or a bit under the calories; protein protects muscle; sugar matters
+    'ירידה במשקל': {
+        weights: { calories: 3, protein: 2, carbs: 1, fat: 1, fiber: 1, sugar: 1.5, sodium: 1 },
+        calOverTol: 0.05, calOverK: 40, calUnderTol: 0.15, calUnderK: 18,
+        proteinK: 18, fiberK: 10, qualityShare: 0.2,
+        workoutBonus: { significant: 1, light: 0.3 },
+    },
+    // Muscle gain: eating ENOUGH (calories + protein) is the whole point; a bit over is fine
+    'עלייה במסת שריר': {
+        weights: { calories: 2.5, protein: 3, carbs: 1, fat: 0.75, fiber: 0.75, sugar: 0.75, sodium: 0.75 },
+        calOverTol: 0.15, calOverK: 18, calUnderTol: 0.05, calUnderK: 25,
+        proteinK: 22, fiberK: 8, qualityShare: 0.2,
+        workoutBonus: { significant: 1, light: 0.3 },
+    },
+    // Recomposition: slight deficit, high protein; both directions matter
+    'שילוב מתון': {
+        weights: { calories: 2.5, protein: 3, carbs: 1, fat: 1, fiber: 1, sugar: 1, sodium: 1 },
+        calOverTol: 0.05, calOverK: 33, calUnderTol: 0.1, calUnderK: 18,
+        proteinK: 20, fiberK: 10, qualityShare: 0.2,
+        workoutBonus: { significant: 1, light: 0.3 },
+    },
+    // Healthier lifestyle: quality and variety first, limits on sugar/sodium, fiber, and regular workouts
+    'אורח חיים בריא יותר': {
+        weights: { calories: 1.5, protein: 1.25, carbs: 0.75, fat: 0.75, fiber: 2, sugar: 2, sodium: 2 },
+        calOverTol: 0.1, calOverK: 25, calUnderTol: 0.15, calUnderK: 15,
+        proteinK: 12, fiberK: 15, qualityShare: 0.35,
+        workoutBonus: { significant: 1.2, light: 0.4 },
+    },
+};
+
+/** Healthy food groups, used to measure variety. */
+const FOOD_GROUPS: Record<string, string[]> = {
+    'ירקות': ['סלט', 'ירק', 'גזר', 'עגבני', 'מלפפון', 'חסה', 'פלפל', 'ברוקולי', 'כרוב', 'תרד', 'קישוא', 'חציל', 'בצל', 'פטריות', 'שעועית ירוקה', 'סלק', 'דלעת', 'בטטה'],
+    'פירות': ['פרי', 'פירות', 'תפוח', 'בננה', 'תות', 'ענב', 'אגס', 'תפוז', 'קלמנטינה', 'אבטיח', 'מלון', 'אננס', 'מנגו', 'אוכמניות', 'פטל', 'קיווי', 'אפרסק', 'שזיף', 'רימון', 'תמר'],
+    'קטניות': ['עדשים', 'חומוס', 'שעועית', 'אדממה', 'טופו', 'פול', 'אפונה'],
+    'דגנים מלאים': ['מלא', 'שיבולת', 'קוואקר', 'קינואה', 'כוסמת', 'בורגול', 'כוסמין', 'שעורה'],
+    'חלבון רזה ודגים': ['חזה עוף', 'הודו', 'דג', 'סלמון', 'טונה', 'ביצה', 'ביצים', 'קוטג', 'יוגורט'],
+    'אגוזים וזרעים': ['שקד', 'אגוז', 'טחינה', 'זרעי', 'פיסטוק', 'קשיו', 'בוטנ', "צ'יה", 'פשתן', 'אבוקדו', 'זית'],
+};
+const UNHEALTHY_KEYWORDS = ['פיצה', 'בורגר', 'המבורגר', "צ'יפס", 'מטוגן', 'שניצל', 'שוקולד', 'גלידה', 'עוגה', 'עוגי', 'ממתק', 'חטיף', 'במבה', 'ביסלי', 'בורקס', 'נקניק', 'קולה', 'ממותק', 'מעובד', 'סופגני', 'ופל', 'קרואסון', 'שווארמה', 'נאגטס'];
+
+const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+
 export function calculateDailyScore(
     meals: Meal[],
     workouts: Workout[],
@@ -47,185 +111,104 @@ export function calculateDailyScore(
     resetTimeStr: string = '00:00',
     options: { dayComplete?: boolean } = {}
 ): ScoreBreakdown {
-    // 1. Calculate Time Progress (Expected Progress)
-    // Assuming a standard "active" day is from 08:00 to 22:00 (14 hours) for eating.
+    const goal = GOAL_PROFILES[userGoal] || GOAL_PROFILES['אורח חיים בריא יותר'];
+
+    // 1. How much of the day's eating is expected by now (08:00-22:00 window; a finished day = 100%)
     const now = new Date(currentTimeMs);
     const hour = now.getHours() + now.getMinutes() / 60;
     const [resetH, resetM] = (resetTimeStr || '00:00').split(':').map(Number);
     const resetHour = (resetH || 0) + (resetM || 0) / 60;
+    let e = 0;
+    if (options.dayComplete || hour < resetHour) e = 1;
+    else if (hour < 8) e = 0;
+    else if (hour >= 22) e = 1;
+    else e = (hour - 8) / 14;
 
-    let progressExpected = 0;
-    if (options.dayComplete || hour < resetHour) {
-        // A finished day (or the late-night hours that still belong to it): the whole day's intake is expected
-        progressExpected = 1.0;
-    } else if (hour < 8) {
-        progressExpected = 0.0; // 0% expected before 8 AM
-    } else if (hour >= 22) {
-        progressExpected = 1.0; // 100% expected after 10 PM
-    } else {
-        // Linearly scale from 8:00 (0.00) to 22:00 (1.0)
-        progressExpected = ((hour - 8) / 14);
-    }
+    // 2. Per-nutrient scores (0-10), each compared to where you should be by now
+    const fullTargets = getNutrientTargets(targets as any) as Record<string, number>;
+    const consumedOf = (key: string) => meals.reduce((sum, meal) => sum + ((meal[key as keyof Meal] as number) || 0), 0);
+    const nutrientScores: Record<string, number> = {};
+    let weighted = 0, weightSum = 0, actualSum = 0;
 
-    // 2. Calculate Nutritional Progress
-    let totalProgressSum = 0;
-    let trackedCount = 0;
-
-    // By default track main 4, else use tracked object
-    // Same rule as the rest of the app: tracked unless switched off in Settings
-    const isTracked = (key: string) => isNutrientTracked(tracked, key);
-
-    const nutrientKeys = ['calories', 'protein', 'carbs', 'fat', 'fiber', 'sodium', 'sugar'];
-
-    // Goal-based dynamic weighting
-    const getWeight = (key: string) => {
-        if (!isTracked(key)) return 0;
-        let weight = 1.0;
-
-        switch (userGoal) {
-            case 'עלייה במסת שריר':
-                if (key === 'protein') weight = 2.0;
-                if (key === 'calories') weight = 1.5;
+    for (const key of ['calories', 'protein', 'carbs', 'fat', 'fiber', 'sodium', 'sugar']) {
+        const target = fullTargets[key];
+        if (!isNutrientTracked(tracked, key) || !target) continue;
+        const r = consumedOf(key) / target;  // share of the daily target eaten
+        const dev = r - e;                    // ahead (+) or behind (-) of schedule
+        let score = 10;
+        switch (key) {
+            case 'calories':
+                if (dev > goal.calOverTol) score = 10 - (dev - goal.calOverTol) * goal.calOverK;
+                else if (-dev > goal.calUnderTol) score = 10 - (-dev - goal.calUnderTol) * goal.calUnderK;
                 break;
-            case 'ירידה במשקל':
-                if (key === 'calories') weight = 2.0;
-                if (key === 'sugar' || key === 'fat') weight = 1.5;
+            case 'protein':
+                if (-dev > 0.1) score = 10 - (-dev - 0.1) * goal.proteinK;
                 break;
-            case 'שילוב מתון':
-                if (key === 'protein') weight = 1.5;
-                if (key === 'calories') weight = 1.5;
+            case 'fiber':
+                if (-dev > 0.15) score = 10 - (-dev - 0.15) * goal.fiberK;
                 break;
-            case 'אורח חיים בריא יותר':
-            default:
-                if (key === 'sodium' || key === 'sugar') weight = 1.5;
-                if (key === 'fiber') weight = 1.2;
+            case 'carbs':
+            case 'fat': {
+                const overTol = key === 'fat' && userGoal === 'ירידה במשקל' ? 0.05 : 0.1;
+                if (dev > overTol) score = 10 - (dev - overTol) * 15;
+                else if (-dev > 0.3) score = 10 - (-dev - 0.3) * 6; // mild: low carbs/fat is not a big problem
                 break;
-        }
-        return weight;
-    };
-
-    let totalWeight = 0;
-
-    const getMacroProgressWithWeight = (key: string) => {
-        // Same targets as shown on screen (fiber/sodium/sugar get standard defaults if missing)
-        const target = (getNutrientTargets(targets as any) as Record<string, number>)[key];
-        if (!isTracked(key) || !target) return null;
-        const consumed = meals.reduce((sum, meal) => sum + ((meal[key as keyof Meal] as number) || 0), 0);
-        let ratio = consumed / target;
-
-        // Positive macros (we want to hit the target, no penalty for slight overage)
-        if (key === 'protein' || key === 'fiber') {
-            return Math.min(ratio, 1.0); // Capped at 100% progress
-        }
-
-        // Pure limits (sugar, sodium): staying under the limit is simply good. Eating LESS of them must not
-        // look like "falling behind", so under the limit they count as exactly on schedule.
-        if ((key === 'sugar' || key === 'sodium') && ratio <= 1.0) {
-            return progressExpected;
-        }
-
-        // Limit-based macros (over-consuming should ruin progress)
-        if (key === 'sugar' || key === 'sodium' || key === 'fat' || key === 'calories' || key === 'carbs') {
-            if (ratio <= 1.0) {
-                return ratio; // Normal progress up to 100%
-            } else {
-                // If you eat 200% of your sugar, you don't get 100% progress. You get severely negative progress.
-                // ratio = 1.5 -> progress = 1.0 - (0.5 * 2) = 0.0
-                // ratio = 2.0 -> progress = 1.0 - (1.0 * 2) = -1.0
-                const overage = ratio - 1.0;
-                let penaltyMultiplier = key === 'sugar' ? 3.0 : 2.0; // Sugar is especially penalized
-                return Math.max(1.0 - (overage * penaltyMultiplier), -2.0); // Cap extreme negatives at -200% impact
             }
+            case 'sugar':
+            case 'sodium':
+                // Ceilings: anything under the limit is fine at any time of day; only going over costs points
+                if (r > 1) score = 10 - (r - 1) * (key === 'sugar' ? 25 : 20);
+                break;
         }
+        score = clamp(score, 0, 10);
+        nutrientScores[key] = Math.round(score * 10) / 10;
+        const w = goal.weights[key] ?? 1;
+        weighted += score * w;
+        weightSum += w;
+        actualSum += Math.min(r, 1.5) * w;
+    }
+    let macroNutritionScore = weightSum > 0 ? weighted / weightSum : 10;
+    const progressActual = weightSum > 0 ? actualSum / weightSum : e;
 
-        return Math.min(ratio, 1.0);
-    };
-
-    nutrientKeys.forEach(key => {
-        const prog = getMacroProgressWithWeight(key);
-        if (prog !== null) {
-            const w = getWeight(key);
-            totalProgressSum += (prog * w);
-            totalWeight += w;
-            trackedCount++;
-        }
-    });
-
-    // If nothing tracked, default to expected
-    const progressActual = totalWeight > 0 ? (totalProgressSum / totalWeight) : progressExpected;
-
-    // 3. Compare Actual vs Expected 
-    // We want Actual to be close to Expected. 
-    // If you're 20% behind expected, you lose points. If you're 20% ahead, you might lose points (eating too much too fast).
-    let diff = progressActual - progressExpected;
-
-    // Penalize more for being behind than being slightly ahead
-    let penalty = 0;
-    if (diff < -0.1) {
-        // Falling behind (e.g., 10% behind expected)
-        penalty = Math.abs(diff + 0.1) * 10; // lose 1 point for every 10% behind buffer
-    } else if (diff > 0.3) {
-        // Eating way too fast (e.g., 30% ahead of schedule)
-        penalty = (diff - 0.3) * 5; // lose 1 point for every 20% ahead
+    // A failed calorie day (the main lever of every goal) can't be rescued by the rest
+    if (nutrientScores.calories !== undefined && nutrientScores.calories < 3) {
+        macroNutritionScore = Math.min(macroNutritionScore, 6);
     }
 
-    let macroNutritionScore = Math.max(1, 10 - penalty); // Base max is 10
+    // 3. Food quality & variety
+    const names = meals.map(m => m.name || '');
+    const foodGroups = Object.entries(FOOD_GROUPS)
+        .filter(([, words]) => names.some(n => words.some(w => n.includes(w))))
+        .map(([group]) => group);
+    const unhealthyCount = names.filter(n => UNHEALTHY_KEYWORDS.some(k => n.includes(k))).length;
+    // Variety expected so far: about 4 healthy food groups over a full day
+    const expectedGroups = Math.max(1, Math.round(4 * Math.max(e, 0.25)));
+    let healthQualityScore = 6 + 4 * Math.min(foodGroups.length / expectedGroups, 1) - Math.min(unhealthyCount * 1.5, 6);
+    if (meals.length === 0) healthQualityScore = 8; // nothing eaten yet: neutral
+    healthQualityScore = clamp(healthQualityScore, 1, 10);
 
-    // 3.5 Health Quality & Food Diversity (20% of final nutrition score)
-    const healthyKeywords = ['סלט', 'ירק', 'פרי', 'תפוח', 'בננה', 'גזר', 'עגבנייה', 'מלפפון', 'חסה', 'פלפל', 'ברוקולי', 'טחינה', 'אבוקדו', 'שקד', 'אגוז', 'זיתים', 'שיבולת', 'קינואה', 'עדשים', 'חזה עוף', 'דג', 'סלמון', 'ביצה', 'ביצים'];
-    const unhealthyKeywords = ['פיצה', 'בורגר', 'המבורגר', 'צ\'יפס', 'מטוגן', 'שוקולד', 'גלידה', 'עוגה', 'עוגייה', 'ממתק', 'חטיף', 'בורקס', 'נקניק', 'קולה', 'מתוק', 'מעובד'];
+    let baseNutritionScore = macroNutritionScore * (1 - goal.qualityShare) + healthQualityScore * goal.qualityShare;
+    if (macroNutritionScore < 4) baseNutritionScore = Math.min(baseNutritionScore, 5.5);
 
-    let healthyCount = 0;
-    let unhealthyCount = 0;
-
-    meals.forEach(meal => {
-        const name = meal.name || '';
-        if (healthyKeywords.some(k => name.includes(k))) healthyCount++;
-        if (unhealthyKeywords.some(k => name.includes(k))) unhealthyCount++;
-    });
-
-    let healthQualityScore = 7; // Base quality score
-    healthQualityScore += (healthyCount * 1.5);
-    healthQualityScore -= (unhealthyCount * 2.5); // Increased penalty for bad foods
-
-    // Aggressive override: If progressActual is heavily negative due to sugar/fat abuse, cap the health score.
-    if (progressActual < 0.3 && progressExpected > 0.5) {
-        healthQualityScore = Math.min(healthQualityScore, 4); // Cannot pretend to be healthy if macros are deeply ruined
-    }
-
-    healthQualityScore = Math.min(Math.max(healthQualityScore, 1), 10);
-
-    // Final base nutrition score is 80% macros and time progress, 20% health quality
-    // If macroNutritionScore is terrible (e.g. 1 or 2), 20% health score shouldn't save it to a 9.
-    let baseNutritionScore = (macroNutritionScore * 0.8) + (healthQualityScore * 0.2);
-
-    // Hard Ceiling Rule: If you failed your macros entirely, you cannot score above a 6.
-    if (macroNutritionScore < 4.0) {
-        baseNutritionScore = Math.min(baseNutritionScore, 5.5);
-    }
-
-    // 4. Workout Bonus: a real workout earns the full bonus, light activity (e.g. a short walk) a small one
+    // 4. Workouts: a real workout earns the full bonus, light activity (e.g. a short walk) a small one.
+    //    The "healthier lifestyle" plan puts more weight on regular training.
     let workoutBonus = 0;
     if (workouts.length > 0) {
         const hasSignificant = workouts.some(w => classifyWorkout(w).level === 'significant');
-        workoutBonus = hasSignificant ? 1 : 0.3;
+        workoutBonus = hasSignificant ? goal.workoutBonus.significant : goal.workoutBonus.light;
     }
 
-    // 5. Final Score Calculation
-    let totalScore = baseNutritionScore + workoutBonus;
-
-    // Cap between 1 and 10
-    totalScore = Math.min(Math.max(Math.round(totalScore * 10) / 10, 1), 10);
-
-    // If score has decimal .0, parse as int, otherwise 1 decimal place.
-    totalScore = Number(totalScore.toFixed(1));
+    // 5. Final score (1-10)
+    const totalScore = Number(clamp(Math.round((baseNutritionScore + workoutBonus) * 10) / 10, 1, 10).toFixed(1));
 
     return {
         totalScore,
         nutritionScore: Number(baseNutritionScore.toFixed(1)),
         workoutBonus,
-        progressExpected: Number((progressExpected * 100).toFixed(0)),
+        progressExpected: Number((e * 100).toFixed(0)),
         progressActual: Number((progressActual * 100).toFixed(0)),
-        healthQualityScore: Number(healthQualityScore.toFixed(1))
+        healthQualityScore: Number(healthQualityScore.toFixed(1)),
+        nutrientScores,
+        foodGroups,
     };
 }

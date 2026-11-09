@@ -711,6 +711,23 @@ Instructions: ${instructions || 'ללא הוראות מיוחדות'}
     }
 };
 
+// What each of the app's goals ("plans") means. Shared by the score explanation and the recommendations,
+// so the AI coaches toward the user's actual plan instead of guessing from its name.
+const GOAL_GUIDE = `
+THE USER'S PLAN (the "Goal" field) – coach according to it:
+- "ירידה במשקל" (weight loss): a calorie deficit to lose mainly fat. Most important: staying at or slightly under the calorie target; protein high to keep muscle; limit sugar and fat. Going clearly over calories is the main thing that hurts. Eating far too little is also not good (hard to sustain, loses muscle).
+- "עלייה במסת שריר" (muscle gain): a calorie surplus + strength training to build muscle. Most important: eating ENOUGH – reaching the calorie and protein targets. Under-eating is the main failure; being a little over calories is fine. Strength workouts are central.
+- "שילוב מתון" (recomposition): lose fat and build/keep muscle at the same time, slowly. A small deficit with high protein. Both going over calories and missing protein matter.
+- "אורח חיים בריא יותר" (healthier lifestyle): no weight change. The focus is on eating healthier and more varied (vegetables, fruit, legumes, whole grains, lean protein, nuts – many different food groups), keeping sugar and sodium low, enough fiber, and training regularly. Praise variety and real food; gently point out processed / fried / sugary items.
+
+HOW THE SCORE WORKS (so your explanation matches the number):
+- Each nutrient gets its own 0-10 score ("nutrientScores"), compared to where the user should be by now (by the end of the day, the full target). The plan decides how much each nutrient counts.
+- Sugar and sodium are ceilings: under the limit is good; only going over costs points.
+- Part of the score is food quality & variety ("healthQualityScore", "foodGroups" = healthy food groups eaten today). For the healthier-lifestyle plan this part counts more.
+- A real workout adds a bonus; light activity adds a small one.
+- When explaining a score, name the 1-2 nutrients with the LOWEST nutrientScores as the main reasons (in Hebrew words, never the English keys), and say what went well. Never contradict the number.
+`;
+
 const SCORE_EXPLANATION_PROMPT = `
 You are an empathetic, smart, and realistic personal health coach. Explain the user's daily health score based on their consumption data, logged items, past days context, and the CURRENT TIME OF DAY in 100% HEBREW.
 
@@ -727,6 +744,7 @@ WORKOUT JUDGMENT (IMPORTANT):
 - A substantial session (e.g. a gym workout, a run, a long or brisk walk, a long ride) deserves real, specific praise that mentions what was done (distance, pace, duration).
 - Relate to the weekly goal using ONLY the significant workouts: e.g. "זה האימון השני השבוע מתוך 3-4 – בדרך הנכונה". If the week is behind the goal, encourage gently without guilt.
 - Never invent workouts or numbers that were not provided.
+- Address the user in the grammatical gender given in the Goal field ("פנה למשתמש בלשון זכר/נקבה"). Never use slash forms like את/ה.
 `;
 
 const FINAL_DAY_SUMMARY_ADDENDUM = `
@@ -784,7 +802,7 @@ Past Days & Weekly Context: ${pastDaysContextStr || 'No past context available.'
         const fallbackData = await generateContentWithFallback({
             contents: fullPrompt,
             config: {
-                systemInstruction: SCORE_EXPLANATION_PROMPT + (extra.isFinalSummary ? FINAL_DAY_SUMMARY_ADDENDUM : ''),
+                systemInstruction: SCORE_EXPLANATION_PROMPT + GOAL_GUIDE + (extra.isFinalSummary ? FINAL_DAY_SUMMARY_ADDENDUM : ''),
                 temperature: 0.1,
                 thinkingConfig: { thinkingBudget: 1024 } 
             }
@@ -820,7 +838,7 @@ Past 3 Days Context: ${pastDaysContextStr || 'No past context available.'}
 
         const fallbackData = await generateContentWithFallback({
             contents: promptMsg,
-            config: { responseMimeType: 'application/json', systemInstruction: RECOMMENDATIONS_PROMPT,
+            config: { responseMimeType: 'application/json', systemInstruction: RECOMMENDATIONS_PROMPT + GOAL_GUIDE + `\nFor recommendations: tailor every tip to the plan above (e.g. muscle gain: how to still reach protein/calories today; weight loss: what to eat to stay within calories while feeling full; healthier lifestyle: which food group is still missing today for variety, and nudge toward the next workout).\n`,
                 temperature: 0.1,
                 thinkingConfig: { thinkingBudget: 2048 } 
             }
