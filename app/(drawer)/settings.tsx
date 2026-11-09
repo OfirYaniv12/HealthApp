@@ -2,6 +2,7 @@ import { AlertManager as Alert } from '@/components/GlobalAlert';
 import ProgressUpdateModal from '@/components/ProgressUpdateModal';
 import { clearAllMeals } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
+import { DAILY_LIMIT } from '@/utils/ai';
 import { triggerScoreExplanationUpdate } from '@/utils/scoreUpdater';
 import { pushUserSettings } from '@/utils/userSettingsSync';
 import { Ionicons } from '@expo/vector-icons';
@@ -214,6 +215,30 @@ export default function SettingsScreen() {
 
 
 
+                {/* AI usage today (counted on this device; the app's own daily safety limit) */}
+                {user && (() => {
+                    const today = new Date().toISOString().split('T')[0];
+                    const used = user.aiDailyCount?.dateStr === today ? user.aiDailyCount.count : 0;
+                    const pct = Math.min(used / DAILY_LIMIT, 1);
+                    return (
+                        <View style={styles.section}>
+                            <Text style={styles.sectionTitle}>שימוש ב-AI</Text>
+                            <View style={styles.settingCard}>
+                                <View style={{ flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                                    <Text style={styles.settingLabel}>בקשות היום</Text>
+                                    <Text style={styles.aiUsageValue}>{used} / {DAILY_LIMIT}</Text>
+                                </View>
+                                <View style={styles.aiUsageTrack}>
+                                    <View style={[styles.aiUsageFill, { width: `${Math.max(pct * 100, used > 0 ? 2 : 0)}%`, backgroundColor: pct > 0.9 ? '#ef4444' : pct > 0.7 ? '#f59e0b' : '#3b82f6' }]} />
+                                </View>
+                                <Text style={styles.settingDesc}>
+                                    נותרו {Math.max(DAILY_LIMIT - used, 0)} בקשות להיום (מתאפס כל יום). כל הודעה בצ'אט, ניתוח מתכון, הסבר ציון והמלצות נחשבים בקשה. בנוסף יש מגבלה של 15 בקשות בדקה. הספירה היא במכשיר הזה.
+                                </Text>
+                            </View>
+                        </View>
+                    );
+                })()}
+
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>נתונים והיסטוריה</Text>
 
@@ -247,6 +272,9 @@ const styles = StyleSheet.create({
     settingLabel: { fontSize: 16, fontWeight: 'bold', color: '#1e293b', textAlign: 'right', marginBottom: 4 },
     settingDesc: { fontSize: 13, color: '#64748b', textAlign: 'right', lineHeight: 20 },
 
+    aiUsageValue: { fontSize: 18, fontWeight: 'bold', color: '#1e293b' },
+    aiUsageTrack: { height: 8, backgroundColor: '#f1f5f9', borderRadius: 4, overflow: 'hidden', marginVertical: 10 },
+    aiUsageFill: { height: 8, borderRadius: 4 },
     profileRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 12, marginBottom: 16 },
     profileAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#eff6ff', justifyContent: 'center', alignItems: 'center' },
     profileName: { fontSize: 18, fontWeight: 'bold', color: '#1e293b', textAlign: 'right' },

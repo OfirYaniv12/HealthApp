@@ -8,6 +8,7 @@ import { triggerScoreExplanationUpdate } from '@/utils/scoreUpdater';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
+import { prepareImageForAI } from '@/utils/imageForAI';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, I18nManager, Image, KeyboardAvoidingView, Modal, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';;
 
@@ -96,11 +97,11 @@ export default function AddMealChatScreen() {
 
         if (!result.canceled && result.assets && result.assets.length > 0) {
             const asset = result.assets[0];
-            setSelectedImageUri(asset.uri);
-            // Keep the image data so it is actually sent to the AI (needed for nutrition labels, menus, plates)
-            setSelectedImageBase64(asset.base64
-                ? `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}`
-                : (asset.uri.startsWith('data:') ? asset.uri : null));
+            // Scaled down + compressed before sending (full-size phone photos are too big for the server).
+            // The image is sent to the AI (nutrition labels, menus, plates).
+            const prepared = await prepareImageForAI(asset);
+            setSelectedImageBase64(prepared);
+            setSelectedImageUri(prepared || asset.uri);
         }
     };
 

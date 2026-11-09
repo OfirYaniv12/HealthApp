@@ -2,6 +2,7 @@ import { AlertManager as Alert } from '@/components/GlobalAlert';
 import { addRecipe, addRecipeCategory, deleteRecipe, getRecipeCategories, getRecipesWithCategories, Recipe, RecipeCategory, updateRecipe, updateRecipeImage } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
 import { analyzeRecipe } from '@/utils/ai';
+import { prepareImageForAI } from '@/utils/imageForAI';
 import { getActiveNutrients, nutrientLabelsLoc } from '@/utils/nutrients';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -92,7 +93,9 @@ export default function MyRecipesScreen() {
             : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8, base64: true });
 
         if (!result.canceled && result.assets && result.assets.length > 0) {
-            setSelectedImageUri(result.assets[0].base64 ? `data:image/jpeg;base64,${result.assets[0].base64}` : result.assets[0].uri);
+            // Scaled down + compressed (the photo is stored with the recipe; full-size phone photos are several MB)
+            const prepared = await prepareImageForAI(result.assets[0]);
+            setSelectedImageUri(prepared || result.assets[0].uri);
         }
     };
 

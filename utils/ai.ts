@@ -74,7 +74,7 @@ export type WorkoutPlan = {
 };
 
 const RPM_LIMIT = 15;
-const DAILY_LIMIT = 500;
+export const DAILY_LIMIT = 500;
 let rpmTimestamps: number[] = [];
 
 import { useUserStore } from '@/store/useUserStore';
@@ -345,6 +345,8 @@ export const generateNutritionResponse = async (history: { role: 'user' | 'model
         };
     } catch (e: any) {
         console.error('[AI] Nutrition request failed', e);
+        if (e?.status === 413) return { isMeal: false, textResponse: 'התמונה גדולה מדי לשליחה. נסה לצלם שוב או לשלוח צילום מסך.' };
+        if (e?.status === 401) return { isMeal: false, textResponse: 'נראה שההתחברות פגה. התחבר מחדש ונסה שוב.' };
         return { isMeal: false, textResponse: 'שגיאת AI. נסה שוב בעוד רגע.' };
     }
 };
@@ -461,6 +463,8 @@ export const generateWorkoutResponse = async (
         return { isWorkout: false, textResponse: parsed.textResponse || 'לא הבנתי, אפשר לפרט איזה אימון עשית וכמה זמן?', usedModel };
     } catch (e: any) {
         console.error('[AI] Workout request failed', e);
+        if (e?.status === 413) return { isWorkout: false, textResponse: 'התמונה גדולה מדי לשליחה. נסה לצלם שוב או לשלוח צילום מסך.' };
+        if (e?.status === 401) return { isWorkout: false, textResponse: 'נראה שההתחברות פגה. התחבר מחדש ונסה שוב.' };
         return { isWorkout: false, textResponse: 'שגיאת AI. נסה שוב בעוד רגע.' };
     }
 };
