@@ -44,6 +44,8 @@ export interface TemplateMeta {
     met?: number;
     /** The notes the stored MET was decided for (re-decided if the description changes) */
     metFor?: string;
+    /** Gym: the user's average rest between sets, in seconds (optional) */
+    restSeconds?: number;
 }
 
 const KNOWN_TYPES: WorkoutType[] = ['gym', 'running', 'cycling', 'walking', 'swimming', 'other'];
@@ -65,6 +67,7 @@ export const parseTemplateMeta = (template: Pick<WorkoutTemplate, 'description' 
             if (md.distance) meta.distance = String(md.distance);
             if (typeof md.met === 'number' && md.met > 0) meta.met = md.met;
             if (typeof md.metFor === 'string') meta.metFor = md.metFor;
+            if (typeof md.restSeconds === 'number' && md.restSeconds > 0) meta.restSeconds = md.restSeconds;
             if (md.notes) meta.notes = String(md.notes);
         }
     } catch (e) { }
@@ -145,6 +148,7 @@ export const logTemplateWorkout = async ({ user, template, durationMinutes, dist
         distanceKm,
         exercises: meta.type === 'gym' ? exercises : null,
         met,
+        restSeconds: meta.restSeconds ?? null,
     });
 
     const descParts: string[] = [WORKOUT_TYPE_LABELS[meta.type]];

@@ -40,11 +40,23 @@ const SWIMMING: [number, number][] = [[25, 4.5], [35, 5.8], [46, 7.0], [55, 8.3]
 /** MET when no distance is known: a typical moderate session of that activity. */
 const DEFAULT_MET: Record<ActivityType, number> = { gym: 3.5, running: 9.8, cycling: 6.8, walking: 3.5, swimming: 7.0, other: 5.0 };
 
-// ---- Gym (resistance training) set model ----
-const REST_MET = 2.0;          // between sets: standing, moving plates, walking between machines
-const MET_LEG_COMPOUND = 12;   // squat, deadlift, leg press, lunges...
-const MET_UPPER_COMPOUND = 9.5; // presses, rows, pull-ups, dips...
-const MET_ISOLATION = 7;        // curls, extensions, raises, calves, abs...
+// ---- Gym (resistance training) model ----
+// The session = sets (lifting) + rest between sets + everything else (warm-up, set-up, moving between machines).
+// - Lifting time of a set comes from its reps (~4 s per rep, e.g. 10 reps ≈ 40 s), within 20-75 s.
+// - Rest comes from the user's average rest between sets (optional, measured by most lifters), else a standard default.
+// - Whatever is left of the total time is warm-up / moving between machines (light activity).
+// More sets in the same time = more calories; longer rests in the same time = slightly fewer.
+export const DEFAULT_REST_SECONDS = 90; // common guidance for strength/hypertrophy training: 60-120 s
+const REST_MET = 2.0;          // resting between sets (standing, light movement)
+const OTHER_MET = 2.5;         // warm-up, setting up, walking between machines
+const MET_LEG_COMPOUND = 10;   // vigorous lifting: squat, deadlift, leg press, lunges...
+const MET_UPPER_COMPOUND = 8;  // presses, rows, pull-ups, dips...
+const MET_ISOLATION = 6;       // curls, extensions, raises, calves, abs...
+const SECONDS_PER_REP = 4;
+const MIN_SET_SECONDS = 20;
+const MAX_SET_SECONDS = 75;
+
+const formatMinSec = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, '0')}`;
 
 const ISOLATION_WORDS = ['כפיפ', 'פשיט', 'הרחק', 'פרפר', 'fly', 'פליי', 'תאומים', 'בטן', 'יד קדמית', 'יד אחורית', 'בייספס', 'טרייספס', 'curl', 'extension', 'raise', 'calf', 'קרנץ', 'פלאנק'];
 const LEG_WORDS = ['רגל', 'סקוואט', 'squat', 'דדליפט', 'deadlift', 'לאנג', 'lunge', 'מכרע', 'ירך', 'ישבן', 'היפ', 'leg press'];
@@ -72,6 +84,8 @@ export interface WorkoutCalorieInput {
     exercises?: ExerciseLike[] | null;
     /** For "other" (or gym without set data): a MET value decided once and stored */
     met?: number | null;
+    /** Gym: average rest between sets in seconds (optional; a standard default is used otherwise) */
+    restSeconds?: number | null;
 }
 
 export interface WorkoutCalorieResult {
@@ -112,32 +126,43 @@ export function computeWorkoutCalories(input: WorkoutCalorieInput): WorkoutCalor
         return { kcal, met: r1(met), explanation: `${label} של ${r1(km)} ק"מ ב-${Math.round(minutes)} דק' (${paceText}) → עצימות ${r1(met)} MET × ${kg} ק"ג = ${kcal} קק"ל.` };
     }
 
-    // Gym with real set data: work sets + rest between them
+    // Gym with real set data: sets + rest between sets (+ warm-up / set-up time)
     if (input.type === 'gym' && input.exercises && input.exercises.length > 0) {
-        let workMetMinutes = 0;
-        let workMinutes = 0;
         let totalSets = 0;
+        let liftSec = 0;
+        let liftMetSec = 0;
         for (const ex of input.exercises) {
             const sets = toInt(ex.sets);
             if (!sets) continue;
             const reps = toInt(ex.reps) || 10;
-            const setMinutes = Math.min(Math.max(reps * 3, 25), 75) / 60; // ~3 s per rep, 25-75 s per set
-            workMinutes += sets * setMinutes;
-            workMetMinutes += sets * setMinutes * classifySet(ex);
+            const setSec = Math.min(Math.max(reps * SECONDS_PER_REP, MIN_SET_SECONDS), MAX_SET_SECONDS);
             totalSets += sets;
+            liftSec += sets * setSec;
+            liftMetSec += sets * setSec * classifySet(ex);
         }
         if (totalSets > 0) {
-            // If the logged time is shorter than the sets themselves, scale the work down to fit
-            const scale = workMinutes > minutes ? minutes / workMinutes : 1;
-            workMinutes *= scale;
-            workMetMinutes *= scale;
-            const restMinutes = Math.max(minutes - workMinutes, 0);
-            const metMinutes = workMetMinutes + restMinutes * REST_MET;
+            const userRest = input.restSeconds && input.restSeconds > 0 ? input.restSeconds : null;
+            const restSec = userRest ?? DEFAULT_REST_SECONDS;
+            const totalSec = minutes * 60;
+            if (liftSec > totalSec) {
+                // Logged time is shorter than the sets themselves: scale the lifting down to fit
+                liftMetSec *= totalSec / liftSec;
+                liftSec = totalSec;
+            }
+            // The logged time is the truth: if sets + stated rests don't fit in it, the rests were shorter
+            const restTotalSec = Math.min(totalSets * restSec, totalSec - liftSec);
+            const otherSec = Math.max(totalSec - liftSec - restTotalSec, 0);
+            const metMinutes = (liftMetSec + restTotalSec * REST_MET + otherSec * OTHER_MET) / 60;
             const avgMet = Math.min(Math.max(metMinutes / minutes, 2.5), 6.5);
             const kcal = Math.round(avgMet * kg * hours);
+            const parts = [
+                `${totalSets} סטים (כ-${Math.round(liftSec / 60)} דק' הרמה)`,
+                `${Math.round(restTotalSec / 60)} דק' מנוחה (${formatMinSec(restSec)} בין סטים${userRest ? '' : ' – ברירת מחדל'})`,
+            ];
+            if (otherSec >= 60) parts.push(`${Math.round(otherSec / 60)} דק' נוספות (חימום, מעברים בין מכשירים, הפסקות)`);
             return {
                 kcal, met: r1(avgMet),
-                explanation: `${totalSets} סטים (כ-${Math.round(workMinutes)} דק' עבודה) ועוד ${Math.round(restMinutes)} דק' מנוחה בין סטים → עצימות ממוצעת ${r1(avgMet)} MET × ${kg} ק"ג = ${kcal} קק"ל.`,
+                explanation: `${parts.join(', ')} → עצימות ממוצעת ${r1(avgMet)} MET × ${kg} ק"ג = ${kcal} קק"ל.`,
             };
         }
     }

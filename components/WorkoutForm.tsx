@@ -1,5 +1,6 @@
 import { WorkoutTemplate } from '@/db/database';
 import { AlertManager as Alert } from '@/components/GlobalAlert';
+import { DEFAULT_REST_SECONDS } from '@/utils/workoutCalories';
 import { DISTANCE_TYPES, parseTemplateMeta, WORKOUT_TYPE_LABELS, WORKOUT_TYPES, WorkoutType } from '@/utils/workoutTemplates';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef, useState } from 'react';
@@ -51,6 +52,13 @@ export default function WorkoutForm({ visible, isGenerating, onClose, onSave, in
     const [presetDuration, setPresetDuration] = useState('');
     const [distance, setDistance] = useState('');
     const [notes, setNotes] = useState('');
+    // Gym: optional average rest between sets (seconds). null = not set -> the standard default is used
+    const [restSeconds, setRestSeconds] = useState<number | null>(null);
+
+    const formatRest = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    const changeRest = (delta: number) => {
+        setRestSeconds(prev => Math.min(Math.max((prev ?? DEFAULT_REST_SECONDS) + delta, 15), 300));
+    };
 
     const clearFields = () => {
         setTemplateName('');
@@ -60,6 +68,7 @@ export default function WorkoutForm({ visible, isGenerating, onClose, onSave, in
         setPresetDuration('');
         setDistance('');
         setNotes('');
+        setRestSeconds(null);
     };
 
     // Load the template into the form when opening in edit mode
@@ -73,6 +82,7 @@ export default function WorkoutForm({ visible, isGenerating, onClose, onSave, in
             setPresetDuration(meta.presetDuration || '');
             setDistance(meta.distance || '');
             setNotes(meta.notes || '');
+            setRestSeconds(meta.restSeconds ?? null);
 
             let loadedBlocks: MuscleGroupBlock[] = [];
             if (meta.type === 'gym') {
@@ -203,7 +213,8 @@ export default function WorkoutForm({ visible, isGenerating, onClose, onSave, in
             descObj = {
                 type: 'gym',
                 requireTimeOnLog,
-                presetDuration
+                presetDuration,
+                ...(restSeconds !== null ? { restSeconds } : {})
             };
         }
 
@@ -274,7 +285,37 @@ export default function WorkoutForm({ visible, isGenerating, onClose, onSave, in
                                 )}
                             </View>
 
-
+                            {workoutType === 'gym' && (
+                                <View style={styles.restBox}>
+                                    <View style={{ flexDirection: 'row-reverse', alignItems: 'center', gap: 6 }}>
+                                        <Ionicons name="timer-outline" size={18} color="#3b82f6" />
+                                        <Text style={styles.restTitle}>זמן מנוחה ממוצע בין סטים</Text>
+                                        <View style={styles.optionalBadge}><Text style={styles.optionalBadgeText}>אופציונלי</Text></View>
+                                    </View>
+                                    <Text style={styles.restHint}>
+                                        עוזר לדייק את חישוב הקלוריות. אם לא תגדיר, נחשב לפי {formatRest(DEFAULT_REST_SECONDS)} דקות – המקובל באימוני כוח.
+                                    </Text>
+                                    <View style={styles.restStepper}>
+                                        <TouchableOpacity style={styles.restStepBtn} onPress={() => changeRest(-15)} accessibilityLabel="הורד 15 שניות">
+                                            <Ionicons name="remove" size={22} color="#3b82f6" />
+                                        </TouchableOpacity>
+                                        <View style={{ alignItems: 'center', minWidth: 110 }}>
+                                            <Text style={[styles.restValue, restSeconds === null && { color: '#94a3b8' }]}>
+                                                {formatRest(restSeconds ?? DEFAULT_REST_SECONDS)}
+                                            </Text>
+                                            <Text style={styles.restUnit}>{restSeconds === null ? 'ברירת מחדל' : 'דקות:שניות'}</Text>
+                                        </View>
+                                        <TouchableOpacity style={styles.restStepBtn} onPress={() => changeRest(15)} accessibilityLabel="הוסף 15 שניות">
+                                            <Ionicons name="add" size={22} color="#3b82f6" />
+                                        </TouchableOpacity>
+                                    </View>
+                                    {restSeconds !== null && (
+                                        <TouchableOpacity onPress={() => setRestSeconds(null)} style={{ alignSelf: 'center', marginTop: 6 }}>
+                                            <Text style={{ color: '#64748b', fontSize: 13, textDecorationLine: 'underline' }}>חזרה לברירת מחדל</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+                            )}
                         </View>
 
                         <Text style={styles.sectionHeaderTitle}>תוכנית התרגילים</Text>
@@ -423,6 +464,15 @@ const styles = StyleSheet.create({
     actionBtnSecondary: { flexDirection: 'row-reverse', alignItems: 'center', backgroundColor: '#fff', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, gap: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 3, elevation: 1 },
     actionBtnTextSecondary: { color: '#3b82f6', fontWeight: 'bold', fontSize: 15 },
 
+    restBox: { marginTop: 4, marginBottom: 8, backgroundColor: '#f8fafc', padding: 12, borderRadius: 8 },
+    restTitle: { fontSize: 15, color: '#334155', fontWeight: '600' },
+    optionalBadge: { backgroundColor: '#e0f2fe', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+    optionalBadgeText: { color: '#0369a1', fontSize: 11, fontWeight: 'bold' },
+    restHint: { fontSize: 12, color: '#64748b', textAlign: 'right', marginTop: 6, lineHeight: 17 },
+    restStepper: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 16, marginTop: 10 },
+    restStepBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0', justifyContent: 'center', alignItems: 'center' },
+    restValue: { fontSize: 28, fontWeight: 'bold', color: '#1e293b', fontVariant: ['tabular-nums'] },
+    restUnit: { fontSize: 11, color: '#94a3b8' },
     fullSubmitBtn: { backgroundColor: '#3b82f6', borderRadius: 16, padding: 18, alignItems: 'center', marginHorizontal: 16, marginTop: 8 },
     fullSubmitText: { color: '#fff', fontWeight: 'bold', fontSize: 18 }
 });
