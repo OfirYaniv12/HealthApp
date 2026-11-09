@@ -74,6 +74,7 @@ export const saveUserProfile = async (profile: {
     goal: string; activity_level: string; workout_frequency: string; body_type: string;
     target_pace?: string | null; daily_targets: any;
     resetTime?: string; trackedNutrients?: Record<string, boolean>; settingsUpdatedAt?: number;
+    weightHistory?: { date: string; weight: number }[];
 }): Promise<string | null> => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) return 'not logged in';
@@ -94,6 +95,7 @@ export const saveUserProfile = async (profile: {
         settings: {
             resetTime: profile.resetTime || '00:00',
             trackedNutrients: profile.trackedNutrients || null,
+            weightHistory: profile.weightHistory || null,
             updatedAt: profile.settingsUpdatedAt || Date.now(),
         },
     });
@@ -114,6 +116,7 @@ export const fetchUserProfile = async (userId: string): Promise<any | null> => {
         daily_targets: profile.daily_targets || { calories: target_calories || 2000, protein: 120, carbs: 200, fat: 60 },
         ...(settings?.resetTime ? { resetTime: settings.resetTime } : {}),
         ...(settings?.trackedNutrients ? { trackedNutrients: settings.trackedNutrients } : {}),
+        ...(settings?.weightHistory ? { weightHistory: settings.weightHistory } : {}),
         ...(settings?.updatedAt ? { settingsUpdatedAt: settings.updatedAt } : {}),
     };
 };

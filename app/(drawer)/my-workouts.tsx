@@ -62,10 +62,19 @@ export default function MyWorkoutsScreen() {
                 };
                 const exercisesChanged = strip(exercisesJson) !== strip(editingTemplate.exercises);
                 const summary = exercisesChanged ? await generateWorkoutSummary(flattenedExercises) : null;
+                // Keep the stored intensity of an "other" activity (it is re-decided only if name/notes changed)
+                let finalDescription = descriptionStr || null;
+                const oldMeta = parseTemplateMeta(editingTemplate);
+                if (finalDescription && oldMeta.met) {
+                    try {
+                        const md = JSON.parse(finalDescription);
+                        if (md.type === 'other') finalDescription = JSON.stringify({ ...md, met: oldMeta.met, metFor: oldMeta.metFor });
+                    } catch (e) { }
+                }
                 await updateWorkoutTemplate(editingTemplate.id!, {
                     name: name.trim(),
                     exercises: exercisesJson,
-                    description: descriptionStr || null,
+                    description: finalDescription,
                     ...(summary ? { summary } : {}),
                 });
             } else {

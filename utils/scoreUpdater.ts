@@ -1,7 +1,7 @@
 import { getLogicalDayMeals, getLogicalDayWorkouts, Meal, Workout } from '@/db/database';
 import { UserData, useUserStore } from '@/store/useUserStore';
 import { generateDailyScoreExplanation } from './ai';
-import { getLogicalDayBounds, getLogicalDayBoundsForKey, getLogicalDayKey } from './calculators';
+import { getLogicalDayBounds, getLogicalDayBoundsForKey, getLogicalDayKey, getLogicalWeekForDayKey } from './calculators';
 import { calculateDailyScore, classifyWorkout } from './dailyScore';
 import { getActiveNutrients, getNutrientTargets } from './nutrients';
 
@@ -46,26 +46,29 @@ const buildDayContext = async (user: UserData, dayKey: string, dayComplete: bool
     }).join(' | ');
     const loggedFoodsStr = (meals as Meal[]).map(m => m.name).join(', ') || 'לא נרשמו ארוחות';
 
-    // Past 3 days + this week's workouts (week = the 7 logical days ending with this day)
+    // Past 3 days + this week's workouts. The workout week runs Sunday -> Saturday, starting and
+    // ending at the user's day-reset time (e.g. Sunday 02:00 until the next Sunday 02:00).
     const pastStart = new Date(start); pastStart.setDate(pastStart.getDate() - 3);
-    const weekStart = new Date(start); weekStart.setDate(weekStart.getDate() - 6);
+    const week = getLogicalWeekForDayKey(dayKey, resetTime);
     const [pastMeals, pastWorkouts, weekWorkouts] = await Promise.all([
         getLogicalDayMeals(pastStart.toISOString(), start),
         getLogicalDayWorkouts(pastStart.toISOString(), start),
-        getLogicalDayWorkouts(weekStart.toISOString(), end),
+        getLogicalDayWorkouts(week.start, end), // from Sunday up to the end of this day
     ]);
     const pastMealsTotal = (pastMeals || []).reduce((sum, m) => sum + (m.calories || 0), 0);
     const target = weeklyWorkoutTarget(user.workout_frequency);
     const weekSignificant = (weekWorkouts as Workout[]).filter(w => classifyWorkout(w).level === 'significant').length;
     const weekLight = (weekWorkouts as Workout[]).length - weekSignificant;
+    const daysLeft = week.daysLeftAfter; // days remaining in the week after this one
 
     const pastContextStr =
         `3 הימים הקודמים: ${(pastMeals || []).length} ארוחות (כ-${Math.round(pastMealsTotal)} קק"ל) ו-${(pastWorkouts || []).length} אימונים. ` +
-        `ב-7 הימים האחרונים: ${weekSignificant} אימונים משמעותיים ו-${weekLight} פעילויות קלות. יעד שבועי: ${target.label}.`;
+        `השבוע הנוכחי (ראשון עד שבת, היום הוא יום ${week.dayNumber} בשבוע): ${weekSignificant} אימונים משמעותיים ו-${weekLight} פעילויות קלות עד עכשיו, ` +
+        `ונשארו עוד ${daysLeft} ימים בשבוע. יעד שבועי: ${target.label}.`;
 
     const workoutsDetailStr = describeWorkouts(workouts as Workout[]);
     // SCORE_VERSION: bump when the scoring rules change, so explanations written for the old numbers get rewritten
-    const SCORE_VERSION = 'v3';
+    const SCORE_VERSION = 'v4';
     const hash = `${(meals as Meal[]).map(m => m.id).sort().join(',')}|${(workouts as Workout[]).map(w => w.id).sort().join(',')}|${resetTime}|${user.goal}|${SCORE_VERSION}`;
 
     return { meals, workouts, score, consumptionStr, loggedFoodsStr, pastContextStr, workoutsDetailStr, hash, endDate };

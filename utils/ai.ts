@@ -2,6 +2,7 @@ import { Meal, Workout } from '@/db/database';
 import { UserData } from '@/store/useUserStore';
 import { supabase } from '@/utils/supabase';
 import { calculateDailyTargets } from '@/utils/calculators';
+import { computeWorkoutCalories } from '@/utils/workoutCalories';
 import { Platform } from 'react-native';
 
 // Gemini is called through our own server endpoint (/api/gemini), which holds the API key.
@@ -349,51 +350,6 @@ export const generateNutritionResponse = async (history: { role: 'user' | 'model
 };
 ;
 
-const NUTRITIONIST_SYSTEM_PROMPT = `
-You are the HealthApp Precision Health Coach, an elite AI specialized in clinical sports nutrition and physiological macro calculations.
-Your goal is to generate a comprehensive, highly personalized daily nutritional target profile.
-
-Input User Data provided: Age, Gender, Height, Weight, Activity Level, Workout Frequency, Body Type, and Primary Goal.
-
-Task Requirements & STRICT Scientific Formulas:
-1. Basal Metabolic Rate (BMR): You MUST use the exact Mifflin-St Jeor equation:
-   - Men: (10 × weight in kg) + (6.25 × height in cm) - (5 × age in years) + 5
-   - Women: (10 × weight in kg) + (6.25 × height in cm) - (5 × age in years) - 161
-2. Total Daily Energy Expenditure (TDEE): Multiply BMR by a precise Activity Multiplier. You MUST analyze BOTH their "Workout Frequency" AND their general "Activity Level" (e.g., office job vs construction worker), as well as their "Body Type" (endomorph/ectomorph metabolism).
-   - Base Multipliers (Adjust up/down based on general Activity Level):
-   - Sedentary (0 workouts): BMR × 1.2
-   - Light (1-3 workouts): BMR × 1.375
-   - Moderate (4-5 workouts): BMR × 1.55
-   - Heavy (6+ workouts): BMR × 1.725
-3. Target Calories: Modify TDEE based precisely on the Primary Goal:
-   - "ירידה במשקל" (Weight Loss / Fat Loss): Target = TDEE - 500 kcal
-   - "עליה במסת שריר" (Muscle Mass Gain): Target = TDEE + 300 kcal
-   - "שמירה על משקל / חיטוב" (Maintain / Toning): Target = TDEE
-   - "שילוב מתון" (Moderate Recomp - Muscle Gain + Fat Loss): Target = TDEE - 200 kcal. This is a slower progress goal demanding a slight deficit but extremely high protein to build muscle while losing fat.
-4. Macronutrient Splitting:
-   - Protein: 
-     - Weight Loss / Recomp (שילוב מתון): 2.0g to 2.2g per kg of body weight (Crucial for muscle preservation/growth).
-     - Muscle Gain: 1.8g to 2.2g per kg.
-     - Maintenance: 1.6g to 1.8g per kg.
-   - Fat: 0.8g to 1.0g per kg of body weight (for hormonal health).
-   - Carbs: Remainder of Target Calories (Carbs = (Target Calories - (Protein × 4) - (Fat × 9)) / 4).
-5. Micronutrients: Fiber (14g per 1000 kcal), Sodium (<2300mg), Sugar (<50g).
-
-Output Requirement:
-Return ONLY a raw JSON object string. Do not wrap in markdown.
-{
-  "targets": {
-    "calories": 2000,
-    "protein": 150,
-    "fat": 70,
-    "carbs": 190,
-    "fiber": 30,
-    "sodium": 2300,
-    "sugar": 45
-  },
-  "explanation": "BMR calculated via Mifflin-St Jeor. Applied 1.375 multiplier for 3 weekly workouts. Set -200kcal deficit for Moderate Recomposition with 2.2g/kg protein to build muscle while losing fat."
-}
-`;
 
 // Daily targets are calculated with standard formulas in code (see calculateDailyTargets): exact,
 // instant, and they respect the chosen pace. No AI call needed. (Same signature as before for callers.)
@@ -408,124 +364,40 @@ export const generatePersonalizedPlan = async (user: UserData): Promise<{ target
 };
 ;
 
-const TEMPLATE_WORKOUT_PROMPT = `
-You are the HealthApp Elite AI Coach. Your task is to calculate the precise estimated calories burned for a specific workout template that the user just performed.
 
-Input Context provided in the system prompt:
-- User Profile: (Age, Gender, Weight, Height)
-- Workout Name
-- Workout Description (from Template - the actual exercises)
-- User Session Notes (if any - e.g. "rested a lot" or "lifted heavy")
-- Duration (in minutes)
-
-Task Requirements:
-Calculate the exact estimated calories burned using MET (Metabolic Equivalent of Task).
-Formula: Calories Burned = METs × Weight (kg) × (Duration in minutes / 60)
-1. Read the workout description and notes to determine the precise MET value. 
-2. EXTREMELY IMPORTANT: Understand the nature of the workout. If it is a "Gym" or "Resistance Training" workout, it inherently includes rests and breaks between sets. DO NOT calculate it as non-stop lifting. Use a lower overall average MET (e.g., 3.0-4.0) to account for these natural breaks. 
-3. If it is continuous cardio (e.g., running, cycling), use the appropriate continuous MET (e.g., 7.0-10.0).
-4. Calculate using the provided exact Weight and Duration.
-5. DISTANCE IS CRITICAL FOR WALKING / RUNNING / CYCLING: If a distance is provided, you MUST use it. Compute the actual speed (km/h) = distance / (duration/60) and the pace (min/km), and choose the MET from the real speed, NOT from a generic activity value:
-   - Walking (MET is GROSS, choose by exact speed): <3.2 km/h ≈ 2.8 | 3.2-4.4 ≈ 3.0-3.5 | 4.5-5.5 ≈ 3.8-4.3 | 5.6-6.9 ≈ 5.0 | 7.0-7.9 ≈ 6.3 | 8.0+ (race walking) ≈ 8.0
-   - Running: 8 km/h ≈ 8.3 | 9.7 ≈ 9.8 | 11.3 ≈ 11.0 | 12.9 ≈ 11.8 | 14.5 ≈ 12.8 | 16+ ≈ 14.5+
-   - Cycling: <16 km/h ≈ 4.0-5.8 | 16-19 ≈ 6.8 | 19-22 ≈ 8.0 | 22-25.5 ≈ 10.0 | >25.5 ≈ 12.0
-- Swimming (by pace per 100 m): >3:00 ≈ 5.8 (easy) | 2:00-3:00 ≈ 7-8.3 (moderate) | <2:00 ≈ 9.8-10 (fast). Do not apply the per-km sanity ranges to swimming.
-   - Swimming (by pace per 100 m): >3:00 ≈ 5.8 (easy) | 2:00-3:00 ≈ 7-8.3 (moderate) | <2:00 ≈ 9.8-10 (fast). Do not apply the per-km sanity ranges to swimming.
-   MANDATORY sanity check: the final calories MUST fall within the energy-per-distance range — walking 0.5-0.8 kcal per kg per km, running 0.9-1.05 kcal per kg per km, cycling 0.25-0.45 kcal per kg per km. If your MET result falls outside it, lower/raise the MET until it fits. If the speed is physically implausible, say so in the summary and rely on the distance.
-   The Hebrew summary MUST mention the distance, the computed pace/speed and the MET you chose.
-6. If no distance is provided for these types, estimate by duration and say in the summary that the estimate is time-based because no distance was given.
-
-Output Requirement:
-Return ONLY a strictly formatted JSON object. Do not wrap in markdown blocks like \`\`\`json.
-{
-  "calories_burned": 320,
-  "summary": "חישוב בוצע לפי MET של 6.0 עבור 45 דק' למשקל 80 קג מבוסס על אימון כוח ומנוחות בינוניות."
-}
-`;
-
-export const estimateTemplateWorkout = async (
-    user: UserData,
-    templateName: string,
-    templateDescription: string | null,
-    userNotes: string | null,
-    durationMinutes: number,
-    extra?: { type?: string; distanceKm?: number | null }
-) => {
-    if (!checkAndIncrementRateLimits()) return null;
-
-    try {
-        const distanceLine = extra?.distanceKm
-            ? `Distance: ${extra.distanceKm} km (speed ${(extra.distanceKm / (durationMinutes / 60)).toFixed(2)} km/h, pace ${(durationMinutes / extra.distanceKm).toFixed(2)} min/km)`
-            : 'Distance: not provided';
-        const promptMsg = `User Stats: ${user.weight}kg, ${user.height}cm, Age ${user.age}, ${user.gender}.
-Workout Name: ${templateName}
-Workout Type: ${extra?.type || 'unknown'}
-Duration: ${durationMinutes} mins
-${distanceLine}
-Template Description/Exercises: ${templateDescription || 'None'}
-User Notes: ${userNotes || 'None'}`;
-        const fallbackData = await generateContentWithFallback({
-            contents: promptMsg,
-            config: { responseMimeType: 'application/json', systemInstruction: TEMPLATE_WORKOUT_PROMPT, temperature: 0.1, thinkingConfig: { thinkingBudget: 1024 } }
-        });
-        if (fallbackData.limitReached) return null;
-        const result = fallbackData.result;
-        const parsed = JSON.parse((result.text || '{}').replace(/```json|```/g, ''));
-        return { calories_burned: parsed.calories_burned, summary: parsed.summary };
-    } catch (e: any) { return null; }
-};
 ;
 
 const WORKOUT_SYSTEM_PROMPT = `
-You are the HealthApp Elite AI Coach. Your goal is to precisely estimate workout variables based on user input natively in Hebrew.
+You are the HealthApp workout assistant. The user describes a workout in Hebrew (text and/or a screenshot from a watch / fitness app).
+Your job is to UNDERSTAND the workout precisely. The app calculates the calories itself from what you extract (do not calculate calories).
 
-Input Core Parameters provided on every turn via System prepended text wrapper (e.g. User Weight Kg):
-You MUST formulate exact calories burned using MET (Metabolic Equivalent of Task) or related physiology estimations cross-referenced against the provided user weight.
+Extract:
+- activity_type: one of "gym" (strength / resistance training), "running", "walking", "cycling", "swimming", "other" (anything else: boxing, yoga, football, HIIT class, tennis...).
+- duration_minutes: total minutes of the workout. If the user did not say how long it took, DO NOT guess: return isWorkout=false and ask for the duration in Hebrew.
+- distance_km: the distance in km if given (convert metres to km, e.g. 800 מטר = 0.8). If not given, 0.
+- met: the intensity in METs (Compendium of Physical Activities, gross values), ONLY for "gym" and "other" (0 for the other types – the app derives them from speed):
+  gym: light/technique 3.5, regular 4.5, heavy/vigorous 5.0, circuit/crossfit-style 6.0-8.0.
+  other: use the Compendium value for the activity and the described effort (e.g. yoga 2.5-3.0, pilates 3.0, Thai boxing / kickboxing class 7.0-8.0, sparring 10, football game 7.0-8.0, tennis singles 8.0, HIIT class 8.0, dancing class 5.0-7.0).
+  Use the SAME value for the same description every time.
+- name: short Hebrew name (e.g. "ריצה בקצב מתון", "אימון רגליים").
+- summary: one short Hebrew sentence describing the workout (no calorie numbers).
+If a screenshot is attached, read the values from it (activity, time, distance; if it shows calories, ignore them).
 
-CRITICAL WORKOUT LOGIC:
-Understand the nature of the workout. If it is a "Gym" or "Resistance Training" workout, it inherently includes rests and breaks between sets. DO NOT calculate it as non-stop lifting. Use a lower overall average MET (e.g., 3.0-4.0) to account for these natural breaks. Only use high continuous METs (7.0+) for continuous cardio like running.
-
-DISTANCE LOGIC (walking / running / cycling / swimming):
-If the user gives a distance, you MUST use it. Compute speed (km/h) = distance / (duration/60) and pace (min/km), and pick the MET by the REAL speed, not a generic activity value:
-- Walking (MET is GROSS, choose by exact speed): <3.2 km/h ≈ 2.8 | 3.2-4.4 ≈ 3.0-3.5 | 4.5-5.5 ≈ 3.8-4.3 | 5.6-6.9 ≈ 5.0 | 7.0-7.9 ≈ 6.3 | 8.0+ (race walking) ≈ 8.0
-- Running: 8 km/h ≈ 8.3 | 9.7 ≈ 9.8 | 11.3 ≈ 11.0 | 12.9 ≈ 11.8 | 14.5 ≈ 12.8 | 16+ ≈ 14.5+
-- Cycling: <16 km/h ≈ 4.0-5.8 | 16-19 ≈ 6.8 | 19-22 ≈ 8.0 | 22-25.5 ≈ 10.0 | >25.5 ≈ 12.0
-MANDATORY sanity check: the final calories MUST fall within the energy-per-distance range — walking 0.5-0.8 kcal per kg per km, running 0.9-1.05 kcal per kg per km, cycling 0.25-0.45 kcal per kg per km. If your MET result falls outside it, lower/raise the MET until it fits. If the speed is physically implausible, say so in the summary and rely on the distance.
-The Hebrew summary MUST mention the distance, the computed pace/speed and the MET used. Put the distance in "distance_km" (null if none was given).
-
-OUTPUT RULES:
-- If the user is just chatting, return standard Hebrew text wrapped in JSON.
-- If the user logs an actual workout, return ONLY a strict JSON object modeling the run, gym, swim, etc.
-
-JSON SCHEMA REQUIREMENT:
-{
-  "isWorkout": true,
-  "name": "שם האימון (למשל: ריצה קלה בקצב מתון)",
-  "duration_minutes": 45,
-  "distance_km": 7.5,
-  "calories_burned": 320,
-  "summary": "הסבר קצר: ריצה של 7.5 ק״מ ב-45 דק' (10 קמ״ש, קצב 6:00 לק״מ) עבור מתאמן במשקל 70 ק״ג (MET ~9.8)."
-}
-
-NON-WORKOUT CHAT JSON:
-{
-  "isWorkout": false,
-  "textResponse": "תגובה חברית בעברית - לדוגמה: איזה אימון עשית היום וכמה זמן לקח לך?"
-}
-
-ZERO HALLUCINATION: If the user says "התאמנתי" without time, politely reject logging it and ask for duration. 
+If the user is just chatting, return isWorkout=false and a friendly Hebrew textResponse.
+All text fields in Hebrew.
 `;
 
-const WORKOUT_FIELDS = ['isWorkout', 'textResponse', 'name', 'duration_minutes', 'distance_km', 'calories_burned', 'summary'];
+const WORKOUT_FIELDS = ['isWorkout', 'textResponse', 'activity_type', 'name', 'duration_minutes', 'distance_km', 'met', 'summary'];
 const WORKOUT_RESPONSE_SCHEMA = {
     type: 'OBJECT',
     properties: {
         isWorkout: { type: 'BOOLEAN' },
         textResponse: { type: 'STRING' },
+        activity_type: { type: 'STRING', enum: ['gym', 'running', 'walking', 'cycling', 'swimming', 'other'] },
         name: { type: 'STRING' },
         duration_minutes: { type: 'NUMBER' },
         distance_km: { type: 'NUMBER' },
-        calories_burned: { type: 'NUMBER' },
+        met: { type: 'NUMBER' },
         summary: { type: 'STRING' },
     },
     required: WORKOUT_FIELDS,
@@ -541,10 +413,7 @@ export const generateWorkoutResponse = async (
     if (!checkAndIncrementRateLimits()) return { isWorkout: false, textResponse: 'הגעת למגבלת קצב. המתן מעט.' };
 
     try {
-        const enhancedMessageText = `[SYSTEM CONTEXT: The user weighs ${userWeightKg}kg. Use this EXACT weight to calculate MET calories burned = MET * ${userWeightKg} * (duration / 60). If no distance was given, set distance_km to 0. For a non-workout reply set the numbers to 0 and name/summary to empty strings.]
-
-User Message: ${newMessageText}`;
-        const parts: any[] = [{ text: enhancedMessageText }];
+        const parts: any[] = [{ text: newMessageText }];
         if (imageBase64) {
             const mimeMatch = imageBase64.match(/^data:([^;]+);base64,/);
             parts.push({ inlineData: { data: imageBase64.split(',')[1] || imageBase64, mimeType: mimeMatch?.[1] || 'image/jpeg' } });
@@ -553,7 +422,7 @@ User Message: ${newMessageText}`;
             contents: [...history, { role: 'user', parts }],
             config: {
                 responseMimeType: 'application/json', responseSchema: WORKOUT_RESPONSE_SCHEMA,
-                systemInstruction: WORKOUT_SYSTEM_PROMPT, temperature: 0.1,
+                systemInstruction: WORKOUT_SYSTEM_PROMPT, temperature: 0,
                 thinkingConfig: { thinkingBudget: 1024 }
             }
         }, imageBase64 ? 45000 : 20000);
@@ -561,31 +430,62 @@ User Message: ${newMessageText}`;
         const result = fallbackData.result;
         const usedModel = fallbackData.usedModel;
         const parsed = JSON.parse(extractJson(result.text || '{}'));
-        const dataTarget = parsed.workoutData || parsed;
-        const minutes = toNum(dataTarget.duration_minutes);
-        const kcal = toNum(dataTarget.calories_burned);
-        if (parsed.isWorkout && minutes > 0 && kcal > 0) {
-            const km = toNum(dataTarget.distance_km);
+        const data = parsed.workoutData || parsed;
+        const minutes = toNum(data.duration_minutes);
+
+        if (parsed.isWorkout && minutes > 0) {
+            const km = toNum(data.distance_km);
+            const types = ['gym', 'running', 'walking', 'cycling', 'swimming', 'other'];
+            const type = types.includes(data.activity_type) ? data.activity_type : 'other';
+            // Calories are calculated by the app (deterministic), not by the AI
+            const calc = computeWorkoutCalories({
+                type, minutes, weightKg: userWeightKg, distanceKm: km > 0 ? km : null,
+                met: type === 'gym' || type === 'other' ? toNum(data.met) || null : null,
+            });
             return {
                 isWorkout: true,
                 workoutData: {
-                    name: dataTarget.name || 'אימון כללי',
+                    name: data.name || 'אימון',
                     duration_minutes: Math.round(minutes),
                     distance_km: km > 0 ? km : null,
-                    calories_burned: Math.round(kcal),
-                    summary: dataTarget.summary || 'אימון נרשם בהצלחה.'
+                    calories_burned: calc.kcal,
+                    summary: `${data.summary ? data.summary + '\n' : ''}${calc.explanation}`,
                 },
                 usedModel
             };
         }
         if (parsed.isWorkout) {
-            // A "workout" without duration/calories can't be logged: ask instead of showing an empty card
+            // A workout without a duration can't be calculated: ask instead of showing an empty card
             return { isWorkout: false, textResponse: parsed.textResponse || 'כמה זמן נמשך האימון? (ואם יש – מה היה המרחק)', usedModel };
         }
         return { isWorkout: false, textResponse: parsed.textResponse || 'לא הבנתי, אפשר לפרט איזה אימון עשית וכמה זמן?', usedModel };
     } catch (e: any) {
         console.error('[AI] Workout request failed', e);
         return { isWorkout: false, textResponse: 'שגיאת AI. נסה שוב בעוד רגע.' };
+    }
+};
+
+/**
+ * Intensity (MET) of an "other" activity such as Thai boxing, decided once and stored with the
+ * workout template so every future log of it is calculated identically. Returns null on failure.
+ */
+export const estimateActivityMET = async (activityName: string, description: string | null): Promise<number | null> => {
+    if (!checkAndIncrementRateLimits()) return null;
+    try {
+        const fallbackData = await generateContentWithFallback({
+            contents: `Activity: ${activityName}\nDescription: ${description || 'none'}`,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: { type: 'OBJECT', properties: { met: { type: 'NUMBER' } }, required: ['met'] },
+                systemInstruction: 'Return the typical gross MET value (Compendium of Physical Activities) for this activity as described, for a full session including normal short breaks. Examples: yoga 2.5-3.0, pilates 3.0, Thai boxing / kickboxing class 7.0-8.0, boxing sparring 10, football 7.0-8.0, tennis singles 8.0, HIIT class 8.0, dance class 5.0-7.0, climbing 5.8-7.5. JSON only.',
+                temperature: 0,
+            }
+        });
+        if (fallbackData.limitReached) return null;
+        const met = toNum(JSON.parse(extractJson(fallbackData.result.text || '{}')).met);
+        return met >= 1.5 && met <= 16 ? met : null;
+    } catch (e) {
+        return null;
     }
 };
 
@@ -868,33 +768,6 @@ export const generateWorkoutSummary = async (exercises: any[]): Promise<string> 
     }
 };
 
-export const estimateWorkoutMET = async (exercises: any[], duration: number, userMetrics: any): Promise<number> => {
-    if (!apiKey || exercises.length === 0) return 4.0;
-    
-    try {
-        const prompt = `You are a sports science expert. 
-Calculate the precise Metabolic Equivalent of Task (MET) for this workout session based on exercise selection and volume.
-Duration: ${duration} minutes.
-User Profile: Weight ${userMetrics.weight || 74}kg, Height ${userMetrics.height || 175}cm, Age ${userMetrics.age || 30}, Gender ${userMetrics.gender || 'unknown'} (Use this context to adjust intensity baseline).
-
-Exercises Log:
-${JSON.stringify(exercises, null, 2)}
-
-Return ONLY a valid JSON object containing exactly one numeric key "MET" (e.g. 4.5). Value must be between 2.0 and 10.0 depending on intensity. Return NO OTHER TEXT.`;
-
-        const fallbackData = await generateContentWithFallback({
-            contents: prompt,
-            config: { temperature: 0.1 }
-        });
-        if (fallbackData.limitReached) return 4.0;
-        const result = fallbackData.result;
-        
-        const parsed = JSON.parse((result.text || '{}').replace(/```json|```/g, ''));
-        return typeof parsed.MET === 'number' ? parsed.MET : 4.0;
-    } catch (e) {
-        return 4.0;
-    }
-};
 
 
 ;

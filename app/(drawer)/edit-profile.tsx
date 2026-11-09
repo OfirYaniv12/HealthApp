@@ -207,9 +207,12 @@ export default function EditProfileScreen() {
                         <TouchableOpacity onPress={handleBack} style={styles.backButton}>
                             <Ionicons name="arrow-back" size={28} color="#1e293b" />
                         </TouchableOpacity>
-                        <Text style={styles.pageTitleHeader}>עריכת פרטים אישיים</Text>
+                        <Text style={styles.pageTitleHeader}>תיקון פרטים אישיים</Text>
                         <View style={{ width: 28 }} />
                     </View>
+                    <Text style={{ fontSize: 13, color: '#64748b', textAlign: 'right', marginBottom: 16, lineHeight: 19 }}>
+                        לתיקון טעות בפרטים או לשינוי המטרה. אם המשקל השתנה בזכות התוכנית, עדיף להשתמש ב"עדכון התקדמות" בהגדרות – שם נשמרת ההתקדמות שלך.
+                    </Text>
 
                     <View style={styles.inputGroup}>
                         <Text style={styles.label}>שם מלא</Text>

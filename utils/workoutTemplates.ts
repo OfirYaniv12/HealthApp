@@ -1,6 +1,7 @@
-import { addWorkout, updateWorkoutTemplateLastPerformed, WorkoutTemplate } from '@/db/database';
+import { addWorkout, updateWorkoutTemplate, updateWorkoutTemplateLastPerformed, WorkoutTemplate } from '@/db/database';
 import { UserData } from '@/store/useUserStore';
-import { estimateTemplateWorkout } from '@/utils/ai';
+import { estimateActivityMET } from '@/utils/ai';
+import { computeWorkoutCalories } from '@/utils/workoutCalories';
 import { triggerScoreExplanationUpdate } from '@/utils/scoreUpdater';
 
 /**
@@ -39,6 +40,10 @@ export interface TemplateMeta {
     presetDuration: string;
     distance: string;
     notes: string;
+    /** Intensity (MET) decided once for an "other" activity, so every log of it is calculated the same way */
+    met?: number;
+    /** The notes the stored MET was decided for (re-decided if the description changes) */
+    metFor?: string;
 }
 
 const KNOWN_TYPES: WorkoutType[] = ['gym', 'running', 'cycling', 'walking', 'swimming', 'other'];
@@ -58,6 +63,8 @@ export const parseTemplateMeta = (template: Pick<WorkoutTemplate, 'description' 
             if (md.requireTimeOnLog === false) meta.requireTimeOnLog = false;
             if (md.presetDuration !== undefined && md.presetDuration !== null) meta.presetDuration = String(md.presetDuration);
             if (md.distance) meta.distance = String(md.distance);
+            if (typeof md.met === 'number' && md.met > 0) meta.met = md.met;
+            if (typeof md.metFor === 'string') meta.metFor = md.metFor;
             if (md.notes) meta.notes = String(md.notes);
         }
     } catch (e) { }
@@ -93,18 +100,6 @@ export const parseDistanceKm = (text: string | null | undefined): number | null 
     return isMeters ? value / 1000 : value;
 };
 
-const formatKm = (km: number) => (Math.round(km * 100) / 100).toString();
-
-/** Simple physics fallback for when the AI is unavailable. */
-const fallbackCalories = (type: WorkoutType, weightKg: number, durationMin: number, distanceKm: number | null) => {
-    if (distanceKm && DISTANCE_TYPES.includes(type) && type !== 'swimming') {
-        // Gross energy cost per kg per km (well established approximations)
-        const perKgKm = type === 'running' ? 1.0 : type === 'walking' ? 0.65 : 0.3;
-        return Math.round(perKgKm * weightKg * distanceKm);
-    }
-    const met = type === 'gym' ? 3.5 : type === 'running' ? 8.5 : type === 'cycling' ? 7 : type === 'walking' ? 3.5 : type === 'swimming' ? 7 : 5;
-    return Math.round(met * weightKg * (durationMin / 60));
-};
 
 export interface LogTemplateParams {
     user: UserData;
@@ -114,42 +109,56 @@ export interface LogTemplateParams {
     notes?: string | null;
 }
 
-/** Estimates calories (taking distance into account) and saves the workout to the log. */
+/**
+ * Calculates the calories of a template workout (deterministic – see utils/workoutCalories.ts)
+ * and saves it to the log. Same template + same duration (+ same distance) = same result every time.
+ */
 export const logTemplateWorkout = async ({ user, template, durationMinutes, distanceText, notes }: LogTemplateParams) => {
     const meta = parseTemplateMeta(template);
     const usesDistance = DISTANCE_TYPES.includes(meta.type);
     const distanceKm = usesDistance ? parseDistanceKm(distanceText ?? meta.distance) : null;
 
-    const aiEstimation = await estimateTemplateWorkout(
-        user,
-        template.name,
-        template.exercises || template.description || null,
-        notes || null,
-        durationMinutes,
-        { type: meta.type, distanceKm }
-    );
+    let exercises: any[] = [];
+    try { exercises = JSON.parse(template.exercises || '[]'); } catch (e) { }
 
-    const calBurned = aiEstimation?.calories_burned
-        ? Math.round(aiEstimation.calories_burned)
-        : fallbackCalories(meta.type, user?.weight || 74, durationMinutes, distanceKm);
+    // "Other" activities (e.g. Thai boxing): decide the intensity ONCE with the AI and store it on the template
+    let met: number | null = null;
+    if (meta.type === 'other') {
+        const describedAs = `${template.name} | ${meta.notes || ''}`;
+        if (meta.met && meta.metFor === describedAs) {
+            met = meta.met;
+        } else {
+            met = await estimateActivityMET(template.name, meta.notes || template.summary || null);
+            if (met) {
+                try {
+                    const md = template.description && template.description.trim().startsWith('{') ? JSON.parse(template.description) : { type: 'other' };
+                    await updateWorkoutTemplate(template.id!, { description: JSON.stringify({ ...md, met, metFor: describedAs }) });
+                } catch (e) { console.warn('Could not store activity intensity', e); }
+            }
+        }
+    }
+
+    const result = computeWorkoutCalories({
+        type: meta.type,
+        minutes: durationMinutes,
+        weightKg: user?.weight || 70,
+        distanceKm,
+        exercises: meta.type === 'gym' ? exercises : null,
+        met,
+    });
 
     const descParts: string[] = [WORKOUT_TYPE_LABELS[meta.type]];
-    if (distanceKm) {
-        descParts.push(`מרחק: ${formatKm(distanceKm)} ק"מ`);
-        const paceMinPerKm = durationMinutes / distanceKm;
-        const speedKmh = distanceKm / (durationMinutes / 60);
-        descParts.push(meta.type === 'cycling'
-            ? `מהירות ממוצעת: ${speedKmh.toFixed(1)} קמ"ש`
-            : `קצב: ${Math.floor(paceMinPerKm)}:${String(Math.round((paceMinPerKm % 1) * 60)).padStart(2, '0')} דק'/ק"מ`);
-    }
+    if (distanceKm) descParts.push(`מרחק: ${Math.round(distanceKm * 100) / 100} ק"מ`);
     if (notes) descParts.push(`הערות: ${notes}`);
-    const description = descParts.join(' · ') + (aiEstimation?.summary ? `\n\n${aiEstimation.summary}` : '');
+    const description = descParts.join(' · ') + `
+
+${result.explanation}`;
 
     const now = new Date().toISOString();
     await addWorkout({
         name: template.name,
         duration_minutes: durationMinutes,
-        calories_burned: calBurned,
+        calories_burned: result.kcal,
         exercises: template.exercises,
         description,
         timestamp: now,
@@ -157,5 +166,5 @@ export const logTemplateWorkout = async ({ user, template, durationMinutes, dist
     await updateWorkoutTemplateLastPerformed(template.id!, now);
     triggerScoreExplanationUpdate();
 
-    return { calBurned, summary: aiEstimation?.summary || '', distanceKm };
+    return { calBurned: result.kcal, summary: result.explanation, distanceKm };
 };

@@ -140,3 +140,20 @@ export const calculateDailyTargets = (u: {
         `חלבון ${targets.protein} ג' (${proteinPerKg} ג' לק"ג), שומן ${targets.fat} ג', פחמימות ${targets.carbs} ג'.`;
     return { targets, explanation, bmr: r(bmr), tdee: r(tdee) };
 };
+
+/**
+ * The workout week (Sunday -> Saturday) that a logical day belongs to. It starts on Sunday at the
+ * day-reset time and ends the next Sunday at the reset time.
+ */
+export const getLogicalWeekForDayKey = (dayKey: string, resetTime: string = '00:00') => {
+    const [y, mo, d] = dayKey.split('-').map(Number);
+    const day = new Date(y, mo - 1, d, 12);
+    const weekday = day.getDay(); // 0 = Sunday
+    const sunday = new Date(day);
+    sunday.setDate(sunday.getDate() - weekday);
+    const sundayKey = toLocalDateKey(sunday);
+    const { start, startDate } = getLogicalDayBoundsForKey(sundayKey, resetTime);
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + 7);
+    return { start, end: endDate.toISOString(), sundayKey, dayNumber: weekday + 1, daysLeftAfter: 6 - weekday };
+};

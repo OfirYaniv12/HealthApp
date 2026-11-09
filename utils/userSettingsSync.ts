@@ -14,6 +14,7 @@ import { supabase } from '@/utils/supabase';
 export interface SyncedSettings {
     resetTime?: string;
     trackedNutrients?: Record<string, boolean>;
+    weightHistory?: { date: string; weight: number }[];
     updatedAt?: number;
 }
 
@@ -23,6 +24,7 @@ const pickSettings = (): SyncedSettings | null => {
     return {
         resetTime: user.resetTime || '00:00',
         trackedNutrients: user.trackedNutrients || undefined,
+        weightHistory: user.weightHistory || undefined,
         updatedAt: user.settingsUpdatedAt || Date.now(),
     };
 };
@@ -56,6 +58,7 @@ export const pullUserSettings = async () => {
                 ...store.user,
                 resetTime: remote.resetTime || store.user.resetTime,
                 trackedNutrients: remote.trackedNutrients || store.user.trackedNutrients,
+                weightHistory: remote.weightHistory || store.user.weightHistory,
                 settingsUpdatedAt: remote.updatedAt,
             });
         } else if (!remote || (remote.updatedAt || 0) < localUpdatedAt) {

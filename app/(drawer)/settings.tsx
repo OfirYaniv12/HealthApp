@@ -1,4 +1,5 @@
 import { AlertManager as Alert } from '@/components/GlobalAlert';
+import ProgressUpdateModal from '@/components/ProgressUpdateModal';
 import { clearAllMeals } from '@/db/database';
 import { useUserStore } from '@/store/useUserStore';
 import { triggerScoreExplanationUpdate } from '@/utils/scoreUpdater';
@@ -6,7 +7,7 @@ import { pushUserSettings } from '@/utils/userSettingsSync';
 import { Ionicons } from '@expo/vector-icons';
 import { DrawerActions, useNavigation } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { I18nManager, Platform, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 
 if (!I18nManager.isRTL) {
@@ -19,6 +20,13 @@ export default function SettingsScreen() {
     const navigation = useNavigation();
     const { user, setUser, updateTrackedNutrients } = useUserStore();
     const [tempResetTime, setTempResetTime] = useState(user?.resetTime || '00:00');
+    const [progressVisible, setProgressVisible] = useState(false);
+
+    // The saved profile can load a moment after the screen (e.g. refreshing the page on Settings):
+    // keep the clock in sync with the saved day-reset time.
+    useEffect(() => {
+        setTempResetTime(user?.resetTime || '00:00');
+    }, [user?.resetTime]);
 
     const tracked = user?.trackedNutrients || {};
 
@@ -36,8 +44,11 @@ export default function SettingsScreen() {
                 <Switch
                     value={isOn}
                     onValueChange={() => toggleNutrient(key)}
-                    trackColor={{ false: '#cbd5e1', true: '#3b82f6' }}
-                    thumbColor="#fff"
+                    trackColor={{ false: '#e2e8f0', true: '#3b82f6' }}
+                    thumbColor="#ffffff"
+                    ios_backgroundColor="#e2e8f0"
+                    // On the website the switch otherwise draws a green knob on the blue track
+                    {...(Platform.OS === 'web' ? { activeThumbColor: '#ffffff', activeTrackColor: '#3b82f6' } as any : {})}
                 />
             </View>
         );
@@ -92,6 +103,41 @@ export default function SettingsScreen() {
             </View>
 
             <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+
+                {/* Profile: two different actions – progress (weight changed thanks to the plan) vs fixing details */}
+                {user && (
+                    <View style={styles.section}>
+                        <Text style={styles.sectionTitle}>הפרופיל שלי</Text>
+                        <View style={styles.settingCard}>
+                            <View style={styles.profileRow}>
+                                <View style={styles.profileAvatar}>
+                                    <Ionicons name="person" size={26} color="#3b82f6" />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.profileName}>{user.full_name}</Text>
+                                    <Text style={styles.profileMeta}>{user.goal} · {user.weight} ק"ג · {user.daily_targets?.calories} קק"ל ליום</Text>
+                                </View>
+                            </View>
+
+                            <TouchableOpacity style={styles.profilePrimaryBtn} onPress={() => setProgressVisible(true)}>
+                                <Ionicons name="trending-up-outline" size={20} color="#fff" />
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.profilePrimaryText}>עדכון התקדמות</Text>
+                                    <Text style={styles.profilePrimarySub}>המשקל השתנה בזכות התוכנית – נשמור את ההתקדמות ונעדכן יעדים</Text>
+                                </View>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={styles.profileSecondaryBtn} onPress={() => router.push('/(drawer)/edit-profile' as any)}>
+                                <Ionicons name="create-outline" size={20} color="#3b82f6" />
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.profileSecondaryText}>תיקון פרטים אישיים</Text>
+                                    <Text style={styles.profileSecondarySub}>תיקון טעות בפרטים או שינוי המטרה</Text>
+                                </View>
+                                <Ionicons name="chevron-back" size={18} color="#cbd5e1" />
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                )}
 
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>מעקב תזונתי (הצג/הסתר)</Text>
@@ -178,18 +224,8 @@ export default function SettingsScreen() {
                     <Text style={styles.helperText}>פעולה זו מוחקת את כל הארוחות שהזנת לאפליקציה.</Text>
                 </View>
 
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>חשבון</Text>
-
-                    <TouchableOpacity style={styles.rowButton} onPress={() => router.replace('/onboarding')}>
-                        <Ionicons name="person-outline" size={24} color="#3b82f6" />
-                        <Text style={styles.rowButtonText}>ערוך פרטים אישיים</Text>
-                        <View style={{ flex: 1 }} />
-                        <Ionicons name="chevron-back" size={20} color="#cbd5e1" />
-                    </TouchableOpacity>
-                </View>
-
             </ScrollView>
+            <ProgressUpdateModal visible={progressVisible} onClose={() => setProgressVisible(false)} />
         </SafeAreaView>
     );
 }
@@ -211,6 +247,16 @@ const styles = StyleSheet.create({
     settingLabel: { fontSize: 16, fontWeight: 'bold', color: '#1e293b', textAlign: 'right', marginBottom: 4 },
     settingDesc: { fontSize: 13, color: '#64748b', textAlign: 'right', lineHeight: 20 },
 
+    profileRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 12, marginBottom: 16 },
+    profileAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#eff6ff', justifyContent: 'center', alignItems: 'center' },
+    profileName: { fontSize: 18, fontWeight: 'bold', color: '#1e293b', textAlign: 'right' },
+    profileMeta: { fontSize: 13, color: '#64748b', textAlign: 'right', marginTop: 2 },
+    profilePrimaryBtn: { flexDirection: 'row-reverse', alignItems: 'center', gap: 12, backgroundColor: '#3b82f6', borderRadius: 12, padding: 14, marginBottom: 10 },
+    profilePrimaryText: { color: '#fff', fontWeight: 'bold', fontSize: 16, textAlign: 'right' },
+    profilePrimarySub: { color: '#dbeafe', fontSize: 12, textAlign: 'right', marginTop: 2 },
+    profileSecondaryBtn: { flexDirection: 'row-reverse', alignItems: 'center', gap: 12, backgroundColor: '#f8fafc', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#e2e8f0' },
+    profileSecondaryText: { color: '#1e293b', fontWeight: 'bold', fontSize: 15, textAlign: 'right' },
+    profileSecondarySub: { color: '#64748b', fontSize: 12, textAlign: 'right', marginTop: 2 },
     toggleRow: { flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
     toggleLabel: { fontSize: 16, fontWeight: '500', color: '#1e293b' },
     divider: { height: 1, backgroundColor: '#f1f5f9' },

@@ -73,8 +73,10 @@ export default function DrawerLayout() {
                 <Drawer.Screen
                     name="edit-profile"
                     options={{
-                        drawerLabel: 'עדכון פרטים אישיים',
-                        title: 'עדכון פרטים אישיים',
+                        // Reached from Settings only (no duplicate entry in the side menu)
+                        drawerItemStyle: { display: 'none' },
+                        drawerLabel: 'תיקון פרטים אישיים',
+                        title: 'תיקון פרטים אישיים',
                         drawerIcon: ({ color, size }) => (
                             <Ionicons name="person-circle-outline" size={size} color={color} />
                         )

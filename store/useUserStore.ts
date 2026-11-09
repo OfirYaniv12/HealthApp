@@ -26,7 +26,8 @@ export interface UserData {
     };
     trackedNutrients?: Record<string, boolean>;
     resetTime?: string; // e.g. "00:00" or "02:00"
-    settingsUpdatedAt?: number; // when resetTime / trackedNutrients last changed (for syncing between devices)
+    settingsUpdatedAt?: number;
+    weightHistory?: { date: string; weight: number }[]; // progress updates (weight over time) // when resetTime / trackedNutrients last changed (for syncing between devices)
     aiPlanExplanation?: string;
     dailyScoreExplanations?: Record<string, string>;
     dailyScoreLastUpdated?: Record<string, number>; // Maps date string to timestamp indicating when explanation was generated
