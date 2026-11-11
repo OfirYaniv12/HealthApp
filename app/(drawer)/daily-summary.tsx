@@ -178,6 +178,20 @@ export default function DailySummaryScreen() {
                     )}
                 </View>
 
+                {/* Steps of this day (only when steps tracking is on and data arrived) */}
+                {typeof scoreData?.steps === 'number' && scoreData?.stepsGoal ? (
+                    <View style={styles.card}>
+                        <Text style={styles.sectionTitle}>צעדים</Text>
+                        <View style={{ flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <Text style={styles.logName}>{scoreData.steps.toLocaleString('he-IL')} צעדים</Text>
+                            <Text style={styles.logDetails}>
+                                יעד {scoreData.stepsGoal.toLocaleString('he-IL')} · {Math.round((scoreData.steps / scoreData.stepsGoal) * 100)}%
+                                {scoreData.steps >= scoreData.stepsGoal ? ' 🎉' : ''}
+                            </Text>
+                        </View>
+                    </View>
+                ) : null}
+
                 {/* Workouts Log */}
                 <View style={styles.card}>
                     <Text style={styles.sectionTitle}>אימונים</Text>

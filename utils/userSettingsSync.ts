@@ -15,6 +15,7 @@ export interface SyncedSettings {
     resetTime?: string;
     trackedNutrients?: Record<string, boolean>;
     weightHistory?: { date: string; weight: number }[];
+    stepsEnabled?: boolean;
     updatedAt?: number;
 }
 
@@ -25,6 +26,7 @@ const pickSettings = (): SyncedSettings | null => {
         resetTime: user.resetTime || '00:00',
         trackedNutrients: user.trackedNutrients || undefined,
         weightHistory: user.weightHistory || undefined,
+        stepsEnabled: user.stepsEnabled,
         updatedAt: user.settingsUpdatedAt || Date.now(),
     };
 };
@@ -59,6 +61,7 @@ export const pullUserSettings = async () => {
                 resetTime: remote.resetTime || store.user.resetTime,
                 trackedNutrients: remote.trackedNutrients || store.user.trackedNutrients,
                 weightHistory: remote.weightHistory || store.user.weightHistory,
+                stepsEnabled: remote.stepsEnabled ?? store.user.stepsEnabled,
                 settingsUpdatedAt: remote.updatedAt,
             });
         } else if (!remote || (remote.updatedAt || 0) < localUpdatedAt) {

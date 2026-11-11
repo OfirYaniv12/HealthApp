@@ -4,6 +4,7 @@ import { generateDailyScoreExplanation } from './ai';
 import { getLogicalDayBounds, getLogicalDayBoundsForKey, getLogicalDayKey, getLogicalWeekForDayKey } from './calculators';
 import { calculateDailyScore, classifyWorkout } from './dailyScore';
 import { getActiveNutrients, getNutrientTargets } from './nutrients';
+import { getStepsForScore } from './steps';
 
 /** Target workouts per week, derived from the onboarding answer (e.g. "3-4 בשבוע" -> 3-4). */
 const weeklyWorkoutTarget = (freq?: string) => {
@@ -29,12 +30,16 @@ const describeWorkouts = (workouts: Workout[]) =>
 const buildDayContext = async (user: UserData, dayKey: string, dayComplete: boolean) => {
     const resetTime = user.resetTime || '00:00';
     const { start, end, endDate } = getLogicalDayBoundsForKey(dayKey, resetTime);
-    const [meals, workouts] = await Promise.all([getLogicalDayMeals(start, end), getLogicalDayWorkouts(start, end)]);
+    const [meals, workouts, steps] = await Promise.all([
+        getLogicalDayMeals(start, end),
+        getLogicalDayWorkouts(start, end),
+        getStepsForScore(user, dayKey, dayComplete),
+    ]);
 
     const score = calculateDailyScore(
         meals as Meal[], workouts as Workout[], user.daily_targets as Record<string, number>,
         user.trackedNutrients, user.goal,
-        dayComplete ? endDate.getTime() - 60 * 1000 : Date.now(), resetTime, { dayComplete }
+        dayComplete ? endDate.getTime() - 60 * 1000 : Date.now(), resetTime, { dayComplete, steps }
     );
 
     const fullTargets = getNutrientTargets(user.daily_targets as any);
@@ -66,10 +71,14 @@ const buildDayContext = async (user: UserData, dayKey: string, dayComplete: bool
         `השבוע הנוכחי (ראשון עד שבת, היום הוא יום ${week.dayNumber} בשבוע): ${weekSignificant} אימונים משמעותיים ו-${weekLight} פעילויות קלות עד עכשיו, ` +
         `ונשארו עוד ${daysLeft} ימים בשבוע. יעד שבועי: ${target.label}.`;
 
-    const workoutsDetailStr = describeWorkouts(workouts as Workout[]);
+    const workoutsDetailStr = describeWorkouts(workouts as Workout[]) + (steps
+        ? ` | צעדים: ${steps.count.toLocaleString('he-IL')} מתוך יעד יומי של ${steps.goal.toLocaleString('he-IL')} (הצעדים כוללים גם הליכות שנרשמו כאימון)`
+        : ' | מעקב צעדים: לא פעיל – אל תתייחס לצעדים');
     // SCORE_VERSION: bump when the scoring rules change, so explanations written for the old numbers get rewritten
-    const SCORE_VERSION = 'v4';
-    const hash = `${(meals as Meal[]).map(m => m.id).sort().join(',')}|${(workouts as Workout[]).map(w => w.id).sort().join(',')}|${resetTime}|${user.goal}|${SCORE_VERSION}`;
+    const SCORE_VERSION = 'v5';
+    // Steps are rounded to the nearest 500 so the explanation is refreshed on real changes, not on every few steps
+    const stepsKey = steps ? Math.round(steps.count / 500) : 'off';
+    const hash = `${(meals as Meal[]).map(m => m.id).sort().join(',')}|${(workouts as Workout[]).map(w => w.id).sort().join(',')}|${resetTime}|${user.goal}|${stepsKey}|${SCORE_VERSION}`;
 
     return { meals, workouts, score, consumptionStr, loggedFoodsStr, pastContextStr, workoutsDetailStr, hash, endDate };
 };
@@ -80,9 +89,11 @@ export const refreshDailyScoreData = async () => {
         if (!user) return null;
 
         const { start, end } = getLogicalDayBounds(user.resetTime || '00:00');
-        const [meals, workouts] = await Promise.all([
+        const todayKey = getLogicalDayKey(new Date(), user.resetTime);
+        const [meals, workouts, steps] = await Promise.all([
             getLogicalDayMeals(start, end),
-            getLogicalDayWorkouts(start, end)
+            getLogicalDayWorkouts(start, end),
+            getStepsForScore(user, todayKey, false),
         ]);
 
         const score = calculateDailyScore(
@@ -92,7 +103,8 @@ export const refreshDailyScoreData = async () => {
             user.trackedNutrients,
             user.goal,
             Date.now(),
-            user.resetTime || '00:00'
+            user.resetTime || '00:00',
+            { steps }
         );
 
         const todayDateStr = getLogicalDayKey(new Date(), user.resetTime);

@@ -4,6 +4,7 @@ import { DrawerActions, useNavigation } from '@react-navigation/native';
 import React, { useCallback, useState } from 'react';
 import { I18nManager, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import NutrientModal from '@/components/NutrientModal';
+import StepsHomeCard from '@/components/StepsHomeCard';
 
 // Force RTL layout 
 import { Meal, Workout, getLogicalDayMeals, getLogicalDayWorkouts } from '@/db/database';
@@ -276,6 +277,9 @@ export default function DashboardScreen() {
             })}
           </TouchableOpacity>
         </View>
+
+        {/* Today's steps (optional; only when steps tracking is on). New steps refresh the score. */}
+        <StepsHomeCard onUpdated={refreshDailyScoreData} />
 
         {/* New Daily Recommendations Card */}
         <TouchableOpacity style={styles.card} onPress={() => router.push('/(drawer)/recommendations')}>

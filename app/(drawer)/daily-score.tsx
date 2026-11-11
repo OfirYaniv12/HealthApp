@@ -17,7 +17,7 @@ export default function DailyScoreScreen() {
     const navigation = useNavigation();
     const user = useUserStore(state => state.user);
 
-    const [popupInfo, setPopupInfo] = useState<'nutrition' | 'workout' | null>(null);
+    const [popupInfo, setPopupInfo] = useState<'nutrition' | 'workout' | 'steps' | null>(null);
     const [isLoadingAI, setIsLoadingAI] = useState(false);
 
     const todayDateStr = getLogicalDayKey(new Date(), useUserStore.getState().user?.resetTime);
@@ -88,6 +88,17 @@ export default function DailyScoreScreen() {
         } else {
             return how + `במטרה שלך (אורח חיים בריא):\n• 35% מהציון: איכות וגיוון – כמה קבוצות מזון בריאות אכלת (ירקות, פירות, קטניות, דגנים מלאים, חלבון רזה, אגוזים), ופחות אוכל מעובד/מטוגן/מתוק\n• דגש על סיבים, ועל לא לחרוג בסוכר ובנתרן\n• אימון משמעותי שווה כאן יותר`;
         }
+    };
+
+    const getStepsPopupText = () => {
+        const share: Record<string, string> = { 'ירידה במשקל': '12%', 'עלייה במסת שריר': '8%', 'שילוב מתון': '10%', 'אורח חיים בריא יותר': '15%' };
+        return `היעד היומי שלך נקבע לפי התוכנית, רמת הפעילות והגיל.
+
+הצעדים הם ${share[user?.goal || ''] || '10%'} מהציון בתוכנית שלך, ונמדדים ביחס לשעה ביום (לפי העדכון האחרון מהאייפון) – כך שאם הטלפון עוד לא שלח את הצעדים האחרונים, זה לא מוריד לך ציון.
+
+מעבר על היעד הוא בונוס: 120% מהיעד מוסיף 0.2 נקודה, ו-150% מוסיף 0.4.
+
+אפשר לכבות את המעקב בהגדרות, ואז הצעדים לא נכנסים לציון בכלל.`;
     };
 
     const getWorkoutPopupText = () => {
@@ -178,6 +189,18 @@ export default function DailyScoreScreen() {
                                     <Text style={styles.breakdownLabel}>בונוס אימונים</Text>
                                 </TouchableOpacity>
                             </View>
+
+                            {/* Steps (only when steps tracking is on and data arrived) */}
+                            {typeof scoreData.steps === 'number' && scoreData.stepsGoal ? (
+                                <TouchableOpacity style={styles.stepsRow} onPress={() => setPopupInfo('steps')}>
+                                    <Ionicons name="footsteps" size={20} color="#10b981" />
+                                    <Text style={styles.stepsText}>
+                                        צעדים: {scoreData.steps.toLocaleString('he-IL')} מתוך {scoreData.stepsGoal.toLocaleString('he-IL')}
+                                        {scoreData.stepsBonus ? `  ·  בונוס +${scoreData.stepsBonus}` : ''}
+                                    </Text>
+                                    <Ionicons name="information-circle-outline" size={18} color="#94a3b8" />
+                                </TouchableOpacity>
+                            ) : null}
                         </View>
 
                         <Modal
@@ -189,12 +212,14 @@ export default function DailyScoreScreen() {
                             <Pressable style={styles.modalOverlay} onPress={() => setPopupInfo(null)}>
                                 <View style={styles.modalContent}>
                                     <Text style={styles.modalTitle}>
-                                        {popupInfo === 'nutrition' ? 'בסיס תזונה - חישוב' : 'בונוס אימונים - חישוב'}
+                                        {popupInfo === 'nutrition' ? 'בסיס תזונה - חישוב' : popupInfo === 'steps' ? 'צעדים - חישוב' : 'בונוס אימונים - חישוב'}
                                     </Text>
                                     <Text style={styles.modalText}>
                                         {popupInfo === 'nutrition'
                                             ? getNutritionPopupText()
-                                            : getWorkoutPopupText()}
+                                            : popupInfo === 'steps'
+                                                ? getStepsPopupText()
+                                                : getWorkoutPopupText()}
                                     </Text>
                                     <TouchableOpacity style={styles.modalCloseButton} onPress={() => setPopupInfo(null)}>
                                         <Text style={styles.modalCloseText}>סגור</Text>
@@ -215,6 +240,8 @@ export default function DailyScoreScreen() {
 }
 
 const styles = StyleSheet.create({
+    stepsRow: { flexDirection: 'row-reverse', alignItems: 'center', gap: 8, marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
+    stepsText: { flex: 1, fontSize: 14, color: '#334155', fontWeight: '600', textAlign: 'right' },
     safeArea: { flex: 1, backgroundColor: '#f8fafc', paddingTop: Platform.OS === 'android' ? 25 : 0 },
     header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
     backButton: { padding: 4 },

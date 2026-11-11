@@ -17,7 +17,10 @@ for (const file of ['.env.local', '.env']) {
     }
 }
 
-const handlers = { '/api/gemini': require(path.join(root, 'api', 'gemini.js')) };
+const handlers = {
+    '/api/gemini': require(path.join(root, 'api', 'gemini.js')),
+    '/api/steps': require(path.join(root, 'api', 'steps.js')),
+};
 const PORT = Number(process.env.DEV_API_PORT || 8082);
 
 http.createServer((req, res) => {

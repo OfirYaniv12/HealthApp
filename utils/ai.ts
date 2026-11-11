@@ -629,6 +629,7 @@ HOW THE SCORE WORKS (so your explanation matches the number):
 - Sugar and sodium are ceilings: under the limit is good; only going over costs points.
 - Part of the score is food quality & variety ("healthQualityScore", "foodGroups" = healthy food groups eaten today). For the healthier-lifestyle plan this part counts more.
 - A real workout adds a bonus; light activity adds a small one.
+- STEPS (only if the Workouts Detail mentions steps; if it says steps tracking is not active, never mention steps): steps are part of the score compared to the user's daily steps goal, judged by the time of day. Going over the goal is a bonus – praise it. If behind, suggest a short walk. Steps already include walks logged as workouts.
 - When explaining a score, name the 1-2 nutrients with the LOWEST nutrientScores as the main reasons (in Hebrew words, never the English keys), and say what went well. Never contradict the number.
 `;
 

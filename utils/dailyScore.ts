@@ -14,6 +14,11 @@ export interface ScoreBreakdown {
     nutrientScores?: Record<string, number>;
     /** Healthy food groups eaten today (variety) */
     foodGroups?: string[];
+    /** Steps (only when steps tracking is on and the phone has sent data) */
+    steps?: number;
+    stepsGoal?: number;
+    stepsScore?: number;
+    stepsBonus?: number;
 }
 
 export type WorkoutLevel = 'significant' | 'light';
@@ -55,6 +60,8 @@ type GoalProfile = {
     proteinK: number; fiberK: number;
     qualityShare: number;
     workoutBonus: { significant: number; light: number };
+    /** Share of steps in the score (only when steps tracking is on) */
+    stepsShare: number;
 };
 
 export const GOAL_PROFILES: Record<string, GoalProfile> = {
@@ -64,6 +71,7 @@ export const GOAL_PROFILES: Record<string, GoalProfile> = {
         calOverTol: 0.05, calOverK: 40, calUnderTol: 0.15, calUnderK: 18,
         proteinK: 18, fiberK: 10, qualityShare: 0.2,
         workoutBonus: { significant: 1, light: 0.3 },
+        stepsShare: 0.12,
     },
     // Muscle gain: eating ENOUGH (calories + protein) is the whole point; a bit over is fine
     'עלייה במסת שריר': {
@@ -71,6 +79,7 @@ export const GOAL_PROFILES: Record<string, GoalProfile> = {
         calOverTol: 0.15, calOverK: 18, calUnderTol: 0.05, calUnderK: 25,
         proteinK: 22, fiberK: 8, qualityShare: 0.2,
         workoutBonus: { significant: 1, light: 0.3 },
+        stepsShare: 0.08,
     },
     // Recomposition: slight deficit, high protein; both directions matter
     'שילוב מתון': {
@@ -78,6 +87,7 @@ export const GOAL_PROFILES: Record<string, GoalProfile> = {
         calOverTol: 0.05, calOverK: 33, calUnderTol: 0.1, calUnderK: 18,
         proteinK: 20, fiberK: 10, qualityShare: 0.2,
         workoutBonus: { significant: 1, light: 0.3 },
+        stepsShare: 0.1,
     },
     // Healthier lifestyle: quality and variety first, limits on sugar/sodium, fiber, and regular workouts
     'אורח חיים בריא יותר': {
@@ -85,6 +95,7 @@ export const GOAL_PROFILES: Record<string, GoalProfile> = {
         calOverTol: 0.1, calOverK: 25, calUnderTol: 0.15, calUnderK: 15,
         proteinK: 12, fiberK: 15, qualityShare: 0.35,
         workoutBonus: { significant: 1.2, light: 0.4 },
+        stepsShare: 0.15,
     },
 };
 
@@ -109,7 +120,7 @@ export function calculateDailyScore(
     userGoal: GoalType = 'אורח חיים בריא יותר',
     currentTimeMs: number = Date.now(),
     resetTimeStr: string = '00:00',
-    options: { dayComplete?: boolean } = {}
+    options: { dayComplete?: boolean; steps?: { count: number; goal: number; expected: number } | null } = {}
 ): ScoreBreakdown {
     const goal = GOAL_PROFILES[userGoal] || GOAL_PROFILES['אורח חיים בריא יותר'];
 
@@ -190,6 +201,19 @@ export function calculateDailyScore(
     let baseNutritionScore = macroNutritionScore * (1 - goal.qualityShare) + healthQualityScore * goal.qualityShare;
     if (macroNutritionScore < 4) baseNutritionScore = Math.min(baseNutritionScore, 5.5);
 
+    // 3.6 Steps (optional): part of the score only when tracking is on and the phone has sent data.
+    //     Judged against where you should be by the time of the last sync; going over the goal is a bonus.
+    let stepsScore: number | undefined;
+    let stepsBonus = 0;
+    const st = options.steps;
+    if (st && st.goal > 0) {
+        const r = st.count / st.goal;
+        const dev = r - Math.min(Math.max(st.expected, 0), 1);
+        stepsScore = clamp(dev >= -0.1 ? 10 : 10 - (-dev - 0.1) * 12, 0, 10);
+        baseNutritionScore = baseNutritionScore * (1 - goal.stepsShare) + stepsScore * goal.stepsShare;
+        stepsBonus = r >= 1.5 ? 0.4 : r >= 1.2 ? 0.2 : 0;
+    }
+
     // 4. Workouts: a real workout earns the full bonus, light activity (e.g. a short walk) a small one.
     //    The "healthier lifestyle" plan puts more weight on regular training.
     let workoutBonus = 0;
@@ -199,7 +223,7 @@ export function calculateDailyScore(
     }
 
     // 5. Final score (1-10)
-    const totalScore = Number(clamp(Math.round((baseNutritionScore + workoutBonus) * 10) / 10, 1, 10).toFixed(1));
+    const totalScore = Number(clamp(Math.round((baseNutritionScore + workoutBonus + stepsBonus) * 10) / 10, 1, 10).toFixed(1));
 
     return {
         totalScore,
@@ -210,5 +234,6 @@ export function calculateDailyScore(
         healthQualityScore: Number(healthQualityScore.toFixed(1)),
         nutrientScores,
         foodGroups,
+        ...(st ? { steps: st.count, stepsGoal: st.goal, stepsScore: Math.round((stepsScore ?? 0) * 10) / 10, stepsBonus } : {}),
     };
 }

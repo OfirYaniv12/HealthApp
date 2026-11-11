@@ -7,7 +7,8 @@ import { triggerScoreExplanationUpdate } from '@/utils/scoreUpdater';
 import { pushUserSettings } from '@/utils/userSettingsSync';
 import { Ionicons } from '@expo/vector-icons';
 import { DrawerActions, useNavigation } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import StepsSettingsCard from '@/components/StepsSettingsCard';
 import React, { useEffect, useState } from 'react';
 import { I18nManager, Platform, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 
@@ -18,6 +19,7 @@ if (!I18nManager.isRTL) {
 
 export default function SettingsScreen() {
     const router = useRouter();
+    const { stepsGuide } = useLocalSearchParams<{ stepsGuide?: string }>();
     const navigation = useNavigation();
     const { user, setUser, updateTrackedNutrients } = useUserStore();
     const [tempResetTime, setTempResetTime] = useState(user?.resetTime || '00:00');
@@ -139,6 +141,12 @@ export default function SettingsScreen() {
                         </View>
                     </View>
                 )}
+
+                {/* Optional steps tracking (on by default) */}
+                <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>צעדים</Text>
+                    <StepsSettingsCard openGuideInitially={stepsGuide === '1'} />
+                </View>
 
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>מעקב תזונתי (הצג/הסתר)</Text>

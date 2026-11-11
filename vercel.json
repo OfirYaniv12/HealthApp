@@ -14,6 +14,9 @@
   "functions": {
     "api/gemini.js": {
       "maxDuration": 60
+    },
+    "api/steps.js": {
+      "maxDuration": 15
     }
   }
 }

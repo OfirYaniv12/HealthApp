@@ -2,6 +2,7 @@ import { getLogicalDayMeals, getLogicalDayWorkouts, Meal, Workout } from '@/db/d
 import { useUserStore } from '@/store/useUserStore';
 import { getLogicalDayBoundsForKey, getLogicalDayKey, toLocalDateKey } from '@/utils/calculators';
 import { calculateDailyScore } from '@/utils/dailyScore';
+import { getStepsForDays, getStepsStatus, isStepsEnabled, stepsScoreInputFromCount } from '@/utils/steps';
 import { Ionicons } from '@expo/vector-icons';
 import { DrawerActions, useNavigation } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
@@ -39,10 +40,16 @@ export default function CalendarScreen() {
                 // One query for the whole month, using the logical-day boundaries (day-reset time)
                 const monthStart = getLogicalDayBoundsForKey(dayKeyOf(1), resetTime).start;
                 const monthEnd = getLogicalDayBoundsForKey(dayKeyOf(daysInMonth), resetTime).end;
-                const [allMeals, allWorkouts] = await Promise.all([
+                const allDayKeys = Array.from({ length: daysInMonth }, (_, i) => dayKeyOf(i + 1));
+                const [allMeals, allWorkouts, stepsStatus] = await Promise.all([
                     getLogicalDayMeals(monthStart, monthEnd),
                     getLogicalDayWorkouts(monthStart, monthEnd),
+                    getStepsStatus(),
                 ]);
+                // Steps only matter when tracking is on and the phone has sent data (same rules as the day summary)
+                const stepsByDay = isStepsEnabled(user) && stepsStatus.connected
+                    ? await getStepsForDays(allDayKeys, resetTime)
+                    : {};
 
                 const mealsByDay: Record<string, Meal[]> = {};
                 const workoutsByDay: Record<string, Workout[]> = {};
@@ -57,9 +64,10 @@ export default function CalendarScreen() {
                     const w = workoutsByDay[key] || [];
                     if (m.length === 0 && w.length === 0) continue; // Only rate days with tracked activity
                     const { endDate } = getLogicalDayBoundsForKey(key, resetTime);
+                    const steps = stepsScoreInputFromCount(user, key, stepsByDay[key] || 0, stepsStatus);
                     newScores[d] = calculateDailyScore(
                         m, w, user.daily_targets!, user.trackedNutrients, user.goal,
-                        endDate.getTime() - 60 * 1000, resetTime, { dayComplete: true }
+                        endDate.getTime() - 60 * 1000, resetTime, { dayComplete: true, steps }
                     ).totalScore;
                 }
                 setScores(newScores);
@@ -69,7 +77,7 @@ export default function CalendarScreen() {
         }
 
         loadMonthScores();
-    }, [currentDate, user?.daily_targets, user?.trackedNutrients, user?.goal, resetTime]);
+    }, [currentDate, user?.daily_targets, user?.trackedNutrients, user?.goal, user?.stepsEnabled, resetTime]);
 
     const handlePrevMonth = () => {
         setCurrentDate(new Date(year, month - 1, 1));
