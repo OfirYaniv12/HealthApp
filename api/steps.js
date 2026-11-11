@@ -23,7 +23,9 @@ const parseLines = (data) => {
             // number such as "840 steps" / "840 count", in case the shortcut sends the whole sample)
             const m = line.match(/^(.+?)\s*[=;|\t]\s*([\d.,]+)(?:\s*[^\d\s].*)?\s*$/);
             if (!m) return null;
-            return { start: m[1].trim(), steps: Math.round(parseFloat(m[2].replace(',', '.'))) };
+            // "1,240" = thousands separator; "840,5" / "840.5" = decimal
+            const raw = /^\d{1,3}(,\d{3})+(\.\d+)?$/.test(m[2]) ? m[2].replace(/,/g, '') : m[2].replace(',', '.');
+            return { start: m[1].trim(), steps: Math.round(parseFloat(raw)) };
         })
         .filter(x => x && x.start && isFinite(x.steps));
 };
