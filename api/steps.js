@@ -19,8 +19,9 @@ const parseLines = (data) => {
         .map(line => line.trim())
         .filter(Boolean)
         .map(line => {
-            // "<date>=<steps>" (also tolerates ";" or "|" or a tab as the separator)
-            const m = line.match(/^(.+?)\s*[=;|\t]\s*([\d.,]+)\s*$/);
+            // "<date>=<steps>" (also tolerates ";" or "|" or a tab as the separator, and a unit after the
+            // number such as "840 steps" / "840 count", in case the shortcut sends the whole sample)
+            const m = line.match(/^(.+?)\s*[=;|\t]\s*([\d.,]+)(?:\s*[^\d\s].*)?\s*$/);
             if (!m) return null;
             return { start: m[1].trim(), steps: Math.round(parseFloat(m[2].replace(',', '.'))) };
         })
