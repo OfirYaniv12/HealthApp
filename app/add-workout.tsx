@@ -242,7 +242,7 @@ export default function AddWorkoutChatScreen() {
                     )}
 
                     <View style={styles.inputContainer}>
-                        <TouchableOpacity style={styles.cameraButton} onPress={() => setShowAttachmentMenu(!showAttachmentMenu)}>
+                        <TouchableOpacity style={styles.cameraButton} onPress={() => (Platform.OS === 'web' ? pickImage(false) : setShowAttachmentMenu(!showAttachmentMenu))}>
                             <Ionicons name="camera" size={24} color="#64748b" />
                         </TouchableOpacity>
                         <TextInput

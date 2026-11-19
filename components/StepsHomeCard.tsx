@@ -1,3 +1,4 @@
+import { ConfettiBurst, GOLD, GoldFill, TrophyBadge } from '@/components/GoalCelebration';
 import { formatAgo } from '@/components/StepsSettingsCard';
 import { useUserStore } from '@/store/useUserStore';
 import { getLogicalDayKey } from '@/utils/calculators';
@@ -56,31 +57,43 @@ export default function StepsHomeCard({ onUpdated }: { onUpdated?: () => void })
     const pct = Math.min(count / goal, 1);
     const over = count >= goal;
 
+    const dayKey = getLogicalDayKey(new Date(), user.resetTime);
+
     return (
-        <View style={styles.card}>
+        <View style={[styles.card, over && styles.cardGold]}>
+            <ConfettiBurst play={over && steps !== null} celebrateKey={`steps:${dayKey}`} />
             <View style={styles.row}>
-                <View style={[styles.iconWrap, over && { backgroundColor: '#fef3c7' }]}>
-                    <Ionicons name="footsteps" size={22} color={over ? '#d97706' : '#10b981'} />
-                </View>
+                {over ? <TrophyBadge /> : (
+                    <View style={styles.iconWrap}>
+                        <Ionicons name="footsteps" size={22} color="#10b981" />
+                    </View>
+                )}
                 <View style={{ flex: 1 }}>
                     <Text style={styles.title}>צעדים היום</Text>
                     <Text style={styles.sub}>{status.lastSyncAt ? `עודכן ${formatAgo(status.lastSyncAt)}` : ''}</Text>
                 </View>
                 <View style={{ alignItems: 'flex-start' }}>
-                    <Text style={[styles.count, over && { color: '#d97706' }]}>{steps === null ? '–' : count.toLocaleString('he-IL')}</Text>
+                    <Text style={[styles.count, over && { color: GOLD.text }]}>{steps === null ? '–' : count.toLocaleString('he-IL')}</Text>
                     <Text style={styles.goal}>מתוך {goal.toLocaleString('he-IL')}</Text>
                 </View>
             </View>
             <View style={styles.track}>
-                <View style={[styles.fill, { width: `${Math.max(pct * 100, count > 0 ? 2 : 0)}%`, backgroundColor: over ? '#f59e0b' : '#10b981' }]} />
+                {over ? <GoldFill /> : (
+                    <View style={[styles.fill, { width: `${Math.max(pct * 100, count > 0 ? 2 : 0)}%`, backgroundColor: '#10b981' }]} />
+                )}
             </View>
-            {over && <Text style={styles.overText}>🎉 עברת את היעד היומי{count >= goal * 1.2 ? ' – בונוס לציון!' : '!'}</Text>}
+            {over && (
+                <Text style={styles.overText}>
+                    ✨ יעד הצעדים הושג!{count >= goal * 1.2 ? ' עברת אותו ב-20% – בונוס לציון 🏅' : ' כל הכבוד'}
+                </Text>
+            )}
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    card: { backgroundColor: '#fff', borderRadius: 20, padding: 18, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
+    card: { backgroundColor: '#fff', borderRadius: 20, padding: 18, marginBottom: 16, position: 'relative', borderWidth: 1.5, borderColor: 'transparent', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
+    cardGold: { backgroundColor: GOLD.bg, borderColor: GOLD.border, shadowColor: GOLD.fill, shadowOpacity: 0.25, shadowRadius: 12 },
     connectCard: { flexDirection: 'row-reverse', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: '#d1fae5', borderStyle: 'dashed' },
     row: { flexDirection: 'row-reverse', alignItems: 'center', gap: 12 },
     iconWrap: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#ecfdf5', justifyContent: 'center', alignItems: 'center' },
@@ -88,9 +101,9 @@ const styles = StyleSheet.create({
     sub: { fontSize: 12, color: '#94a3b8', textAlign: 'right', marginTop: 2 },
     count: { fontSize: 26, fontWeight: 'bold', color: '#1e293b', fontVariant: ['tabular-nums'] },
     goal: { fontSize: 12, color: '#64748b' },
-    track: { height: 10, backgroundColor: '#f1f5f9', borderRadius: 5, overflow: 'hidden', marginTop: 14 },
+    track: { height: 10, backgroundColor: '#f1f5f9', borderRadius: 5, overflow: 'hidden', marginTop: 14, flexDirection: 'row' },
     fill: { height: 10, borderRadius: 5 },
-    overText: { fontSize: 13, color: '#b45309', textAlign: 'right', marginTop: 8, fontWeight: '600' },
+    overText: { fontSize: 14, color: GOLD.text, textAlign: 'right', marginTop: 10, fontWeight: 'bold' },
     connectTitle: { fontSize: 15, fontWeight: 'bold', color: '#047857', textAlign: 'right' },
     connectSub: { fontSize: 12, color: '#64748b', textAlign: 'right', marginTop: 2 },
 });

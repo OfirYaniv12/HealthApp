@@ -8,7 +8,9 @@ import StepsHomeCard from '@/components/StepsHomeCard';
 
 // Force RTL layout 
 import { Meal, Workout, getLogicalDayMeals, getLogicalDayWorkouts } from '@/db/database';
-import { generateDailyRecommendations } from '@/utils/ai';
+import { refreshDailyRecommendations } from '@/utils/recommendations';
+import RecommendationsCard from '@/components/RecommendationsCard';
+import WeeklyWorkoutsCard from '@/components/WeeklyWorkoutsCard';
 import { getLogicalDayBounds, getLogicalDayKey } from '@/utils/calculators';
 import { getActiveNutrients, getExpectedProgressNow, getNutrientStatus, getNutrientTargets, NUTRIENT_STATUS_COLORS, nutrientLabelsLoc } from '@/utils/nutrients';
 import { refreshDailyScoreData } from '@/utils/scoreUpdater';
@@ -50,50 +52,10 @@ export default function DashboardScreen() {
           }
           refreshDailyScoreData(); // Background quick-sync mathematical score
 
-          // Data fingerprint: detects actual meal/workout additions and deletions (not just count)
-          const mealFingerprint = logs.map(m => m.id).sort().join(',');
-          const workoutFingerprint = workouts.map(w => w.id).sort().join(',');
-          const newHash = `${mealFingerprint}|${workoutFingerprint}`;
-          const todayDateStr = getLogicalDayKey(new Date(), useUserStore.getState().user?.resetTime);
-
-          const recsCache = currentUser.dailyRecommendations;
-          const isSameDay = recsCache?.dateStr === todayDateStr;
-          const isSameHash = recsCache?.hash === newHash;
-          const isRecent = recsCache?.timestamp && (Date.now() - recsCache.timestamp < 60 * 60 * 1000); // 1 hour for success
-          const isFailure = recsCache?.data?.short?.[0]?.includes('לא זמינות כרגע');
-          
-          // If the last fetch was a failure (API quota issue), shorten cooldown to 5 min for auto-recovery
-          const isRecentFailure = isFailure && recsCache?.timestamp && (Date.now() - recsCache.timestamp < 5 * 60 * 1000);
-
-          if (!isSameDay || !isSameHash || (isFailure && !isRecentFailure)) {
-            if (isMounted) setLoadingRecs(true);
-            const targets = { ...currentUser.daily_targets };
-
-            // Fetch past 3 days context
-            const pastDate = new Date(start);
-            pastDate.setDate(pastDate.getDate() - 3);
-            const pastStartIso = pastDate.toISOString();
-            const [pastMeals, pastWorkouts] = await Promise.all([
-                getLogicalDayMeals(pastStartIso, start),
-                getLogicalDayWorkouts(pastStartIso, start)
-            ]);
-            const pastMealsTotal = (pastMeals || []).reduce((sum, m) => sum + (m.calories || 0), 0);
-            const pastContextStr = `Past 3 days logged ${(pastMeals || []).length} meals (approx ${Math.round(pastMealsTotal)} kcal total) and ${(pastWorkouts || []).length} workouts.`;
-
-            const recs = await generateDailyRecommendations(logs, workouts, targets, (currentUser.goal || '') + " | Workout Frequency: " + (currentUser.workout_frequency || 'Unknown') + ' | פנה למשתמש בלשון ' + (currentUser.gender === 'Female' ? 'נקבה' : 'זכר'), pastContextStr);
-            if (isMounted) {
-              if (recs) {
-                useUserStore.getState().setDailyRecommendations(todayDateStr, newHash, Date.now(), recs);
-              } else {
-                // Prevent infinite network requests by caching the failure state
-                useUserStore.getState().setDailyRecommendations(todayDateStr, newHash, Date.now(), {
-                  short: ["המלצות AI לא זמינות כרגע (עומס)"],
-                  full: "מערכת ה-AI חצתה את מכסת הבקשות. נסה שוב בעוד כשעה."
-                });
-              }
-              setLoadingRecs(false);
-            }
-          }
+          // Recommendations: refreshed in the background when today's data changed or they got old
+          if (isMounted) setLoadingRecs(true);
+          await refreshDailyRecommendations();
+          if (isMounted) setLoadingRecs(false);
 
         } catch (e) {
           console.error('Error loading logs', e);
@@ -281,29 +243,11 @@ export default function DashboardScreen() {
         {/* Today's steps (optional; only when steps tracking is on). New steps refresh the score. */}
         <StepsHomeCard onUpdated={refreshDailyScoreData} />
 
-        {/* New Daily Recommendations Card */}
-        <TouchableOpacity style={styles.card} onPress={() => router.push('/(drawer)/recommendations')}>
-          <View style={{ flexDirection: I18nManager.isRTL ? 'row' : 'row-reverse', alignItems: 'center', justifyContent: 'center', marginBottom: 16, gap: 8 }}>
-            <Ionicons name="sparkles" size={20} color="#f59e0b" />
-            <Text style={[styles.cardTitle, { textAlign: 'center', marginBottom: 0 }]}>המלצות להמשך היום</Text>
-          </View>
+        {/* This week's workouts vs. the plan's weekly goal (hidden if the plan has no workouts) */}
+        <WeeklyWorkoutsCard />
 
-          {loadingRecs ? (
-            <Text style={[styles.emptyStateText, { marginTop: 8 }]}>AI חושב...</Text>
-          ) : user.dailyRecommendations?.data?.short?.length ? (
-            <View style={{ gap: 12 }}>
-              {user.dailyRecommendations.data.short.map((tip, idx) => (
-                <View key={idx} style={{ flexDirection: I18nManager.isRTL ? 'row' : 'row-reverse', alignItems: 'center', gap: 8 }}>
-                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#3b82f6' }} />
-                  <Text style={{ fontSize: 15, color: '#334155', flex: 1, textAlign: 'right', lineHeight: 22 }}>{tip}</Text>
-                </View>
-              ))}
-              <Text style={[styles.actionPrompt, { marginTop: 8 }]}>לחץ להסבר המלא</Text>
-            </View>
-          ) : (
-            <Text style={styles.emptyStateText}>אין המלצות זמינות כרגע.</Text>
-          )}
-        </TouchableOpacity>
+        {/* Practical recommendations for the rest of the day */}
+        <RecommendationsCard recs={user.dailyRecommendations?.dateStr === todayDateStr ? user.dailyRecommendations.data : undefined} loading={loadingRecs} />
 
       </ScrollView>
 

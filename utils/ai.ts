@@ -1,5 +1,5 @@
 import { Meal, Workout } from '@/db/database';
-import { UserData } from '@/store/useUserStore';
+import { DailyRecs, UserData } from '@/store/useUserStore';
 import { supabase } from '@/utils/supabase';
 import { calculateDailyTargets } from '@/utils/calculators';
 import { computeWorkoutCalories } from '@/utils/workoutCalories';
@@ -660,23 +660,20 @@ THIS IS A FINAL SUMMARY OF A DAY THAT HAS ALREADY ENDED (at the user's day-reset
 `;
 
 const RECOMMENDATIONS_PROMPT = `
-You are the HealthApp Advisor, an intelligent, empathetic, and highly realistic personal health coach. 
-Based on the user's daily consumption, workouts, goals, USER SETTINGS (like workout frequency), and PAST DAYS context, generate actionable recommendations.
+You are a practical, warm personal nutrition & fitness coach. The user opens the app and wants to know, concretely, WHAT TO DO for the rest of today: what to eat next and what small action to take. Generic advice ("eat more protein", "drink water") is useless – every suggestion must be specific, realistic and based on the numbers you are given.
 
-TONE & REALISM RULES (CRITICAL):
-- ALWAYS RESPOND IN 100% HEBREW.
-- BE CONSTRUCTIVE AND POSITIVE: Do not be overly harsh or "evil". Look at the bright side and big picture. Support the user through their journey, give realistic advice, and DO NOT make them feel bad for eating or resting.
-- MATCH THEIR LIFESTYLE: If the user's setting says they train 2-3 times a week, do NOT expect them to train 5 times a week! Respect their stated workout frequency and goal. Be highly accurate to their specific situation.
-- If they are off-track, provide gentle, realistic adjustments instead of scolding.
-- TIME OF DAY: Base the advice on the current time and on what is LEFT of the day's targets (e.g. late evening: light suggestions, not a full meal plan).
-- WORKOUTS: Judge each workout realistically. A short easy activity (e.g. a 15-minute walk) is nice movement but NOT a full workout and does not fulfil the weekly workout goal. Only substantial sessions count toward the goal.
-
-Output Requirement:
-Return ONLY a strictly formatted JSON object. Do not wrap in markdown blocks like \`\`\`json.
-{
-  "short": ["טיפ 1 קצר ותומך", "טיפ 2 קצר ותומך"],
-  "full": "הסבר מפורט, מפרגן ומציאותי בעברית. הסתכל על התמונה המלאה ותן עצות מעשיות ובריאות שלא גורמות לתחושת אשמה. השתמש בכותרות עם אימוג'ים (לדוגמה: 🍳 תזונה, 🏃 פעילות)."
-}
+RULES:
+- 100% Hebrew. Address the user in the gender stated in the goal field.
+- Base everything on the REMAINING amounts for today and on the CURRENT TIME (what meal comes next: breakfast / lunch / afternoon snack / dinner / late-night). Late evening (after ~21:00): only light options, and it is fine to say the day is basically done.
+- If calories are already at/over the target, or it is late at night: do not push more food. "eat_next.options" may then be an EMPTY list (do not fill it with water or tea just to have something); put the focus on the actions instead.
+- "eat_next": 2-3 concrete options for the next meal/snack. "title" names the meal, e.g. "לארוחת הערב" / "לנשנוש של אחר הצהריים". Each "name" is a specific dish with a realistic portion (e.g. "2 ביצים + פרוסת לחם מלא + סלט ירקות"). Each "detail" gives the approximate numbers that matter for this user and why it fits, e.g. "כ-420 קק״ל · 32 ג' חלבון – משלים את החלבון שחסר". PREFER the user's own recipes (given in the list) when one fits what is left – then use the recipe's exact name, set from_recipes=true, and base the numbers on its per-serving values. Other options: simple, common foods available in Israel. Respect the plan (see guide).
+- "actions": 2-3 short concrete actions for the rest of today (max ~90 characters each), each with a kind:
+  "food" (a specific food tweak), "workout" (only if it fits the weekly plan: workouts still needed vs. days left, and NOT if a real workout was already done today or the weekly goal is already reached), "steps" (ONLY if steps data is given; e.g. "הליכה של 20 דק' תשלים את 2,000 הצעדים שחסרים"), "water", "rest", "other".
+  Never repeat what "eat_next" already says.
+- "week_tip": one practical sentence about the week (workouts left vs. days left, or a pattern from the past days). Respect the user's workout frequency – never expect more than their plan.
+- "headline": one short sentence (max ~80 characters) on where today stands, positive and honest.
+- "explanation": 3-6 short lines explaining the reasoning in simple words (what is going well, what is missing and why the suggestions help). Plain text lines, no markdown symbols.
+- Be encouraging, never guilt. Numbers must be realistic.
 `;
 
 export const generateDailyScoreExplanation = async (
@@ -720,38 +717,95 @@ Past Days & Weekly Context: ${pastDaysContextStr || 'No past context available.'
     } catch (e: any) { return null; }
 };;
 
-export const generateDailyRecommendations = async (meals: Meal[], workouts: Workout[], targets: any, userGoal?: string, pastDaysContextStr?: string): Promise<{ short: string[], full: string } | null> => {
+const RECOMMENDATIONS_SCHEMA = {
+    type: 'OBJECT',
+    properties: {
+        headline: { type: 'STRING' },
+        eat_next: {
+            type: 'OBJECT',
+            properties: {
+                title: { type: 'STRING' },
+                options: {
+                    type: 'ARRAY',
+                    items: {
+                        type: 'OBJECT',
+                        properties: { name: { type: 'STRING' }, detail: { type: 'STRING' }, from_recipes: { type: 'BOOLEAN' } },
+                        required: ['name', 'detail', 'from_recipes'],
+                    },
+                },
+            },
+            required: ['title', 'options'],
+        },
+        actions: {
+            type: 'ARRAY',
+            items: {
+                type: 'OBJECT',
+                properties: { kind: { type: 'STRING', enum: ['food', 'workout', 'steps', 'water', 'rest', 'other'] }, text: { type: 'STRING' } },
+                required: ['kind', 'text'],
+            },
+        },
+        week_tip: { type: 'STRING' },
+        explanation: { type: 'STRING' },
+    },
+    required: ['headline', 'eat_next', 'actions', 'week_tip', 'explanation'],
+};
+
+export type RecommendationsInput = {
+    meals: Meal[];
+    workouts: Workout[];
+    remaining: string;      // per tracked nutrient: eaten / target / left
+    goal: string;           // plan + workout frequency + gender instruction
+    week: string;           // this week's workouts vs. the weekly goal
+    steps: string;          // today's steps vs. goal, or "not active"
+    pastDays: string;       // the previous 3 days, briefly
+    recipes: { name: string; category?: string; calories: number; protein: number; carbs: number; fat: number }[];
+};
+
+export const generateDailyRecommendations = async (input: RecommendationsInput): Promise<DailyRecs | null> => {
     if (!apiKey) return null;
     if (!checkAndIncrementRateLimits()) return null;
     try {
-        // Send only what matters (no ids, images or long exercise JSON) and tell the model the time of day,
-        // so "recommendations for the rest of the day" fit what is left of it.
         const timeOf = (iso: string) => new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
-        const mealsBrief = meals.map(m => ({ time: timeOf(m.timestamp), name: m.name, calories: m.calories, protein: m.protein, carbs: m.carbs, fat: m.fat, fiber: m.fiber, sodium: m.sodium, sugar: m.sugar }));
-        const workoutsBrief = workouts.map(w => ({ time: timeOf(w.timestamp), name: w.name, minutes: w.duration_minutes, calories: w.calories_burned, details: (w.description || '').split('\n')[0] }));
-        const totals: Record<string, number> = {};
-        for (const k of ['calories', 'protein', 'carbs', 'fat', 'fiber', 'sodium', 'sugar']) totals[k] = Math.round(meals.reduce((a, m: any) => a + (m[k] || 0), 0));
+        const mealsBrief = input.meals.map(m => `${timeOf(m.timestamp)} ${m.name} (${Math.round(m.calories)} קק"ל, ${Math.round(m.protein)} ג' חלבון)`).join(' | ') || 'עדיין לא נרשמו ארוחות היום';
+        const workoutsBrief = input.workouts.map(w => `${timeOf(w.timestamp)} ${w.name}, ${w.duration_minutes} דק'`).join(' | ') || 'אין';
+        const recipesBrief = input.recipes.length
+            ? input.recipes.map(r => `${r.name}${r.category ? ` [${r.category}]` : ''}: ${Math.round(r.calories)} קק"ל, ${Math.round(r.protein)} ג' חלבון, ${Math.round(r.carbs)} ג' פחמ', ${Math.round(r.fat)} ג' שומן (למנה)`).join('\n')
+            : 'אין למשתמש מתכונים שמורים';
         const promptMsg = `
 Current Time: ${new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
-Meals Logged: ${JSON.stringify(mealsBrief)}
-Totals So Far: ${JSON.stringify(totals)}
-Workouts Logged: ${JSON.stringify(workoutsBrief)}
-Targets: ${JSON.stringify(targets)}
-User Goal: ${userGoal || 'לא צוין'}
-Past 3 Days Context: ${pastDaysContextStr || 'No past context available.'}
+Plan / Goal: ${input.goal}
+Today so far – meals: ${mealsBrief}
+Today – workouts: ${workoutsBrief}
+Nutrients today (eaten / daily target / left): ${input.remaining}
+Steps: ${input.steps}
+This week: ${input.week}
+Past days: ${input.pastDays}
+User's own recipes:
+${recipesBrief}
 `;
 
         const fallbackData = await generateContentWithFallback({
             contents: promptMsg,
-            config: { responseMimeType: 'application/json', systemInstruction: RECOMMENDATIONS_PROMPT + GOAL_GUIDE + `\nFor recommendations: tailor every tip to the plan above (e.g. muscle gain: how to still reach protein/calories today; weight loss: what to eat to stay within calories while feeling full; healthier lifestyle: which food group is still missing today for variety, and nudge toward the next workout).\n`,
-                temperature: 0.1,
-                thinkingConfig: { thinkingBudget: 2048 } 
+            config: {
+                responseMimeType: 'application/json', responseSchema: RECOMMENDATIONS_SCHEMA,
+                systemInstruction: RECOMMENDATIONS_PROMPT + GOAL_GUIDE,
+                temperature: 0.4,
+                thinkingConfig: { thinkingBudget: 2048 }
             }
         });
         if (fallbackData.limitReached) return null;
-        const result = fallbackData.result;
-        const parsed = JSON.parse((result.text || '{}').replace(/```json|```/g, ''));
-        return { short: parsed.short || [], full: parsed.full || "" };
+        const parsed = JSON.parse((fallbackData.result.text || '{}').replace(/```json|```/g, ''));
+        const actions = (parsed.actions || []).filter((x: any) => x && x.text).slice(0, 3);
+        const options = (parsed.eat_next?.options || []).filter((o: any) => o && o.name).slice(0, 3)
+            .map((o: any) => ({ name: String(o.name), detail: String(o.detail || ''), fromRecipes: !!o.from_recipes }));
+        return {
+            headline: parsed.headline || '',
+            eatNext: options.length ? { title: parsed.eat_next?.title || 'מה לאכול עכשיו', options } : undefined,
+            actions,
+            weekTip: parsed.week_tip || '',
+            short: actions.map((x: any) => x.text),
+            full: parsed.explanation || '',
+        };
     } catch (e: any) { return null; }
 };
 

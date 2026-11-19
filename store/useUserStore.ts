@@ -3,6 +3,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
+/** Recommendations for the rest of the day (home card + recommendations screen). Older cached data only has short/full. */
+export type DailyRecs = {
+    short: string[];
+    full: string;
+    headline?: string;
+    eatNext?: { title: string; options: { name: string; detail: string; fromRecipes: boolean }[] };
+    actions?: { kind: 'food' | 'workout' | 'steps' | 'water' | 'rest' | 'other'; text: string }[];
+    weekTip?: string;
+};
+
 export interface UserData {
     id: string | null;
     full_name: string;
@@ -38,7 +48,7 @@ export interface UserData {
         dateStr: string;
         hash: string;
         timestamp: number;
-        data: { short: string[]; full: string };
+        data: DailyRecs;
     };
     aiDailyCount?: { count: number; dateStr: string };
 }
@@ -51,7 +61,7 @@ interface UserState {
     updateAiPlan: (targets: UserData['daily_targets'], explanation: string) => void;
     setDailyScoreExplanation: (dateStr: string, explanation: string, hash: string, timestamp?: number) => void;
     setDailyScoreData: (dateStr: string, scoreData: any) => void;
-    setDailyRecommendations: (dateStr: string, hash: string, timestamp: number, data: { short: string[]; full: string }) => void;
+    setDailyRecommendations: (dateStr: string, hash: string, timestamp: number, data: DailyRecs) => void;
     incrementDailyAiCount: () => void;
     triggerAiPlanUpdate: () => Promise<void>;
     resetUser: () => void;

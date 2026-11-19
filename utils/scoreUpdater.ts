@@ -5,13 +5,7 @@ import { getLogicalDayBounds, getLogicalDayBoundsForKey, getLogicalDayKey, getLo
 import { calculateDailyScore, classifyWorkout } from './dailyScore';
 import { getActiveNutrients, getNutrientTargets } from './nutrients';
 import { getStepsForScore } from './steps';
-
-/** Target workouts per week, derived from the onboarding answer (e.g. "3-4 בשבוע" -> 3-4). */
-const weeklyWorkoutTarget = (freq?: string) => {
-    if (!freq || freq.includes('לא')) return { min: 0, max: 0, label: 'לא מתאמן באופן קבוע' };
-    const nums = (freq.match(/\d+/g) || []).map(Number);
-    return { min: nums[0] ?? 0, max: nums[1] ?? nums[0] ?? 0, label: freq };
-};
+import { weeklyWorkoutTarget } from './weeklyWorkouts';
 
 const describeWorkouts = (workouts: Workout[]) =>
     workouts.length === 0
